@@ -3,9 +3,8 @@
 //! A single binary exposing every original TAMA tool as a subcommand. Run
 //! `tama <group> --help` to see the tools in each group.
 
-mod cmd;
-
 use clap::{Parser, Subcommand};
+use tama::cmd;
 
 #[derive(Parser)]
 #[command(

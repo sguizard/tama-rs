@@ -7,6 +7,7 @@
 
 pub mod bed;
 pub mod cigar;
+pub mod collapse;
 pub mod error;
 pub mod error_calc;
 pub mod gene;

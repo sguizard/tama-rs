@@ -5,6 +5,7 @@
 //! alongside `tama collapse`.
 
 pub mod fasta;
+pub mod sam;
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
