@@ -1,0 +1,9 @@
+total_read_count:	4
+pass_read_count:	3
+discarded_read_count:	1
+polya_zero_read_count:	2
+polya_upto_five_read_count:	0
+polya_sixormore_read_count:	1
+longest_trimmed_read_length:	57	longest_trimmed_read_id:	read2
+peak_read_length:	0	peak_read_count:	3
+longest_polya_length:	12

@@ -1,0 +1,4 @@
+polya_num	polya_num_count
+0	2
+6	1
+12	1

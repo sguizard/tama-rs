@@ -195,6 +195,38 @@ fn stats_degradation_matches_golden() {
 }
 
 #[test]
+fn cleanup_polya_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p5_cl_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prefix = dir.join("out");
+    assert!(tama()
+        .args(["cleanup", "polya", "-f"])
+        .arg(r.join("test_data/p5/flnc.fa"))
+        .arg("-p")
+        .arg(&prefix)
+        .args(["-m", "20"])
+        .status()
+        .unwrap()
+        .success());
+    let p = prefix.display();
+    for (suf, gold) in [
+        (".fa", "cleanup.fa"),
+        ("_tails.fa", "cleanup_tails.fa"),
+        ("_polya_flnc_report.txt", "cleanup_polya_flnc_report.txt"),
+        ("_discarded_reads.txt", "cleanup_discarded_reads.txt"),
+        ("_summary.txt", "cleanup_summary.txt"),
+    ] {
+        assert_eq!(
+            read(PathBuf::from(format!("{p}{suf}"))),
+            read(r.join(format!("tests/golden_p5/{gold}"))),
+            "{suf}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn stats_saturation_structure() {
     // The saturation curve is read-order dependent (py2 dict order), so only the
     // structure (header, row count, read_count column) is deterministic.

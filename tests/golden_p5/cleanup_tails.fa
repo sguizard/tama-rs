@@ -1,0 +1,8 @@
+>tail_read1 desc
+AAAAAAAAAAAA
+>tail_read2
+
+>tail_read3
+AAAAAAAAAAAAAAAAAAAA
+>tail_read4short
+AAAAAA

@@ -1,0 +1,2 @@
+>read4short	short	trimlen:4	prelen:10
+ACGTAAAAAA
