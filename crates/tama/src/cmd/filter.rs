@@ -146,14 +146,12 @@ fn single_read(
                 let num_exons = trans_exons[t];
                 let ns = num_sources(t);
                 let tr = total_reads(t);
+                // source_support==1 case: the Python's `ns>1 && tr>=thr` and
+                // `tr>=thr` branches both reduce to `tr>=thr`.
                 let keep_flag = if source_support > 1 {
                     ns >= source_support || (multi == "keep_multi" && num_exons > 1)
-                } else if ns > 1 && tr >= read_support {
-                    true
-                } else if tr >= read_support {
-                    true
                 } else {
-                    multi == "keep_multi" && num_exons > 1
+                    tr >= read_support || (multi == "keep_multi" && num_exons > 1)
                 };
                 if keep_flag {
                     keep.insert(t.clone());

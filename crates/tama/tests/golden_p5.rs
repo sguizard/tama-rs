@@ -114,6 +114,24 @@ fn filter_single_read_matches_golden() {
 }
 
 #[test]
+fn stats_degradation_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p5_deg_{}.txt", std::process::id()));
+    assert!(tama()
+        .args(["stats", "degradation", "-c"])
+        .arg(r.join("tests/golden/collapse_trans_read.bed"))
+        .arg("--nc")
+        .arg(r.join("tests/golden_nocap/collapse_trans_read.bed"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p5/degradation.txt")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn stats_saturation_structure() {
     // The saturation curve is read-order dependent (py2 dict order), so only the
     // structure (header, row count, read_count column) is deterministic.
