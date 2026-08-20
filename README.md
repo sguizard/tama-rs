@@ -8,6 +8,11 @@ The original project is a collection of Python 2 scripts. This rewrite ships a
 single `tama` binary exposing **every** tool as a subcommand, with native Rust
 I/O and **no Python / BioPython / samtools runtime dependency**.
 
+**New to TAMA?** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) explains what the program
+is for, the typical Iso-Seq workflow, and the purpose of each tool. For the
+authoritative biology and parameters, see the original
+[TAMA wiki](https://github.com/GenomeRIK/tama/wiki).
+
 ## Installation
 
 `tama` is compiled from source with Rust's package manager, `cargo`. There is
