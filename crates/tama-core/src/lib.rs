@@ -10,6 +10,7 @@ pub mod cigar;
 pub mod error;
 pub mod error_calc;
 pub mod gene;
+pub mod metrics;
 pub mod model;
 pub mod polya;
 pub mod seq;
