@@ -154,16 +154,17 @@ pub fn compare_transcripts(
     let mut all_match = true;
 
     for i in 0..min_exon_num {
-        let j: usize = if strand == '+' {
-            e_start.len() - 1 - i
+        // Python indexes each list from its own 3' end with `-(i+1)` on the plus
+        // strand, or from the 5' end with `i` on the minus strand.
+        let (ja, jb) = if strand == '+' {
+            (e_start.len() - 1 - i, o_e_start.len() - 1 - i)
         } else {
-            i
+            (i, i)
         };
-        // Note: for the equal/short-long cases both lists share min length here.
-        let es = e_start[j];
-        let oes = o_e_start[j];
-        let ee = e_end[j];
-        let oee = o_e_end[j];
+        let es = e_start[ja];
+        let oes = o_e_start[jb];
+        let ee = e_end[ja];
+        let oee = o_e_end[jb];
 
         // micro-exon: non-overlap -> different transcripts
         if es >= oee || oes >= ee {

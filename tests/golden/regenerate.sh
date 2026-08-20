@@ -25,4 +25,9 @@ fi
 conda run -n tama_py2 python "$ref/tama_collapse.py" \
   -s "$data/gmap_test.sam" -f "$data/test_genome.fa" -p "$here/collapse" -x capped
 
-echo "Golden outputs regenerated in $here"
+nocap_dir="$root/tests/golden_nocap"
+mkdir -p "$nocap_dir"
+conda run -n tama_py2 python "$ref/tama_collapse.py" \
+  -s "$data/gmap_test.sam" -f "$data/test_genome.fa" -p "$nocap_dir/collapse" -x no_cap
+
+echo "Golden outputs regenerated in $here and $nocap_dir"

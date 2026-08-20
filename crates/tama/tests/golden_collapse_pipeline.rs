@@ -1,11 +1,12 @@
-//! Golden test for the full `tama collapse` pipeline (capped mode) against the
-//! original TAMA outputs in `tests/golden/`.
+//! Golden test for the full `tama collapse` pipeline against the original TAMA
+//! outputs, for both the capped (`tests/golden/`) and no-cap
+//! (`tests/golden_nocap/`) modes.
 //!
-//! Asserts byte-identical output for `.bed`, `_read.txt`, `_polya.txt`,
-//! `_strand_check.txt`, and `_trans_read.bed`. For `_trans_report.txt` the first
-//! ten columns must match exactly; the final `collapse_error_nuc` column is
-//! compared as a token set because the original's within-cell order is a Python-2
-//! hash-order artifact.
+//! Asserts byte-identical output for `.bed` (in order), `_read.txt`,
+//! `_polya.txt`, `_strand_check.txt`, and `_trans_read.bed`. For
+//! `_trans_report.txt` the first ten columns must match exactly; the final
+//! `collapse_error_nuc` column is compared as a token set because the original's
+//! within-cell order is a Python-2 hash-order artifact.
 
 use std::path::PathBuf;
 
@@ -19,10 +20,13 @@ fn sorted_lines(s: &str) -> Vec<&str> {
     v
 }
 
-#[test]
-fn collapse_pipeline_matches_golden() {
+fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
     let root = workspace_root();
-    let out_dir = std::env::temp_dir().join(format!("tama_collapse_test_{}", std::process::id()));
+    let out_dir = std::env::temp_dir().join(format!(
+        "tama_collapse_test_{}_{}",
+        cap_flag,
+        std::process::id()
+    ));
     std::fs::create_dir_all(&out_dir).unwrap();
     let prefix = out_dir.join("collapse");
 
@@ -30,7 +34,7 @@ fn collapse_pipeline_matches_golden() {
         sam: root.join("test_data/gmap_test.sam"),
         fasta: root.join("test_data/test_genome.fa"),
         prefix: prefix.to_str().unwrap().to_string(),
-        cap_flag: "capped".to_string(),
+        cap_flag: cap_flag.to_string(),
         ends: "common_ends".to_string(),
         coverage: 99.0,
         identity: 85.0,
@@ -48,27 +52,25 @@ fn collapse_pipeline_matches_golden() {
     };
     tama::cmd::collapse::run(args).expect("collapse run");
 
-    let golden = root.join("tests/golden");
+    let golden = root.join(golden_subdir);
     let read = |p: PathBuf| std::fs::read_to_string(p).unwrap();
 
-    // Exact, in-order match.
     assert_eq!(
         read(out_dir.join("collapse.bed")),
         read(golden.join("collapse.bed")),
-        ".bed must match the original exactly (order + IDs)"
+        "[{cap_flag}] .bed must match the original exactly (order + IDs)"
     );
 
-    // Order-insensitive exact match.
     for name in ["collapse_read.txt", "collapse_polya.txt", "collapse_trans_read.bed"] {
         let mine = read(out_dir.join(name));
         let gold = read(golden.join(name));
-        assert_eq!(sorted_lines(&mine), sorted_lines(&gold), "{name} must match");
+        assert_eq!(sorted_lines(&mine), sorted_lines(&gold), "[{cap_flag}] {name}");
     }
 
-    // strand_check is header-only in this dataset.
     assert_eq!(
         read(out_dir.join("collapse_strand_check.txt")),
-        read(golden.join("collapse_strand_check.txt"))
+        read(golden.join("collapse_strand_check.txt")),
+        "[{cap_flag}] strand_check"
     );
 
     // trans_report: first 10 columns exact; last column as a token set.
@@ -91,7 +93,17 @@ fn collapse_pipeline_matches_golden() {
         rows.sort_unstable();
         rows
     };
-    assert_eq!(norm(&mine), norm(&gold), "trans_report columns/tokens must match");
+    assert_eq!(norm(&mine), norm(&gold), "[{cap_flag}] trans_report");
 
     let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn collapse_capped_matches_golden() {
+    run_and_compare("capped", "tests/golden");
+}
+
+#[test]
+fn collapse_nocap_matches_golden() {
+    run_and_compare("no_cap", "tests/golden_nocap");
 }

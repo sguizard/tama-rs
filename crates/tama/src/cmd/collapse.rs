@@ -91,7 +91,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     }
     let cap = match args.cap_flag.as_str() {
         "capped" => Cap::Capped,
-        "no_cap" => bail!("no_cap collapse is not implemented yet (simplify_gene_nocap pending)"),
+        "no_cap" => Cap::NoCap,
         other => bail!("invalid -x cap flag: {other:?} (use capped or no_cap)"),
     };
     let ends = match args.ends.as_str() {
@@ -262,7 +262,10 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                 .map(|id| accepted[id.as_str()].trans.clone())
                 .collect();
 
-            let match_groups = collapse::simplify_gene_capped(&trans_objs, &params);
+            let match_groups = match cap {
+                Cap::Capped => collapse::simplify_gene_capped(&trans_objs, &params),
+                Cap::NoCap => tama_core::collapse_nocap::simplify_gene_nocap(&trans_objs, &params),
+            };
 
             let mut merged_list: Vec<Merged> = Vec::new();
             for idx_group in &match_groups {
