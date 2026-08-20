@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::cigar::cigar_list;
 use crate::error::Error;
@@ -90,9 +90,10 @@ fn mismatch_seq(
     Ok(out)
 }
 
-/// scaffold -> pos -> var_type -> var_seq -> set(read_id).
+/// scaffold -> pos -> var_type -> var_seq -> set(read_id). The alt-seq level uses
+/// insertion-ordered maps so variant lines emit deterministically.
 pub type VariationDict =
-    HashMap<String, BTreeMap<i64, HashMap<char, HashMap<String, IndexSet<String>>>>>;
+    HashMap<String, BTreeMap<i64, IndexMap<char, IndexMap<String, IndexSet<String>>>>>;
 /// scaffold -> pos -> set(read_id).
 pub type CoverageDict = HashMap<String, BTreeMap<i64, IndexSet<String>>>;
 
