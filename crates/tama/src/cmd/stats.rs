@@ -80,7 +80,7 @@ fn saturation(report: &std::path::Path, bin: usize, output: &std::path::Path) ->
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for (read_id, gene) in &read_gene {
         read_count += 1;
-        if bin != 0 && read_count % bin == 0 {
+        if bin != 0 && read_count.is_multiple_of(bin) {
             writeln!(out, "{read_count}\t{gene_count}")?;
         }
         let _ = read_id;

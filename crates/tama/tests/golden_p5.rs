@@ -85,6 +85,35 @@ fn support_levels_merge_matches_golden() {
 }
 
 #[test]
+fn filter_single_read_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p5_sr_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prefix = dir.join("out");
+    assert!(tama()
+        .args(["filter", "single-read", "-b"])
+        .arg(r.join("tests/golden/collapse.bed"))
+        .arg("-r")
+        .arg(r.join("tests/golden_p5/levels_no_merge.txt"))
+        .arg("-o")
+        .arg(&prefix)
+        .status()
+        .unwrap()
+        .success());
+    let p = prefix.display();
+    assert_eq!(read(PathBuf::from(format!("{p}.bed"))), read(r.join("tests/golden_p5/single_read.bed")));
+    assert_eq!(
+        read(PathBuf::from(format!("{p}_singleton_report.txt"))),
+        read(r.join("tests/golden_p5/single_read_report.txt"))
+    );
+    assert_eq!(
+        read(PathBuf::from(format!("{p}_singleton.bed"))),
+        read(r.join("tests/golden_p5/single_read_singleton.bed"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn stats_saturation_structure() {
     // The saturation curve is read-order dependent (py2 dict order), so only the
     // structure (header, row count, read_count column) is deterministic.
