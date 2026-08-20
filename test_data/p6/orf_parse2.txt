@@ -1,0 +1,1 @@
+transM	F1	130	190	2	20	P2	full_match

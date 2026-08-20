@@ -24,7 +24,26 @@ enum Cmd {
     /// Extract CDS regions from a BED. (tama_bed_extract_cds)
     ExtractCds,
     /// Add CDS regions to a BED. (tama_cds_regions_bed_add)
-    AddCds,
+    AddCds {
+        /// Blastp parse file. (`-p`)
+        #[arg(short = 'p', long)]
+        parse: std::path::PathBuf,
+        /// Annotation BED file. (`-a`)
+        #[arg(short = 'a', long)]
+        bed: std::path::PathBuf,
+        /// Transcript FASTA. (`-f`)
+        #[arg(short = 'f', long)]
+        fasta: std::path::PathBuf,
+        /// Output BED file. (`-o`)
+        #[arg(short = 'o', long)]
+        output: std::path::PathBuf,
+        /// Include the stop codon in the CDS (`include_stop`). (`-s`)
+        #[arg(short = 's', long, default_value = "no_stop_codon")]
+        stop: String,
+        /// Distance from last SJ to call NMD. (`-d`)
+        #[arg(short = 'd', long, default_value_t = 50)]
+        sj_dist: i64,
+    },
     /// Parse blastp output for ORF selection. (tama_orf_blastp_parser)
     BlastpParse,
 }
@@ -33,7 +52,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::Seek { fasta, output } => seek(&fasta, &output),
         Cmd::ExtractCds => Err(super::not_implemented("orf extract-cds")),
-        Cmd::AddCds => Err(super::not_implemented("orf add-cds")),
+        Cmd::AddCds { parse, bed, fasta, output, stop, sj_dist } => {
+            add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist)
+        }
         Cmd::BlastpParse => Err(super::not_implemented("orf blastp-parse")),
     }
 }
@@ -178,6 +199,153 @@ fn top_orfs(mut all: Vec<Orf>) -> Vec<Orf> {
         out.extend(by_len.shift_remove(&len).unwrap());
     }
     out
+}
+
+/// Assign CDS/UTR regions and NMD flags to a bed from a blastp parse file.
+/// Ports `tama_cds_regions_bed_add`.
+fn add_cds(
+    parse: &std::path::Path,
+    bed: &std::path::Path,
+    fasta: &std::path::Path,
+    output: &std::path::Path,
+    stop: &str,
+    sj_dist: i64,
+) -> anyhow::Result<()> {
+    // blastp parse: trans_id -> [id, frame, nuc_start, nuc_end, prot_start, prot_end, prot_id, match_flag]
+    let mut trans_dict: indexmap::IndexMap<String, Vec<String>> = indexmap::IndexMap::new();
+    for line in read_lines(parse)? {
+        let cols: Vec<String> = line.split('\t').map(String::from).collect();
+        trans_dict.insert(cols[0].clone(), cols);
+    }
+    // transcript lengths from fasta (id = header up to ':' or '(')
+    let mut trans_len: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+    for (id, seq) in load_fasta(fasta)? {
+        let tid = id.split(':').next().unwrap_or(&id);
+        let tid = tid.split('(').next().unwrap_or(tid);
+        trans_len.insert(tid.to_string(), seq.len() as i64);
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for line in read_lines(bed)? {
+        let mut cols: Vec<String> = line.split('\t').map(String::from).collect();
+        let trans_id = cols[3].clone();
+        let block_list: Vec<i64> = cols[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+
+        let td = match trans_dict.get(&trans_id) {
+            None => {
+                cols[6] = "0".into();
+                cols[7] = "0".into();
+                cols[3] = format!("{};none;missing;no_orf;missing;na", cols[3]);
+                writeln!(out, "{}", cols.join("\t"))?;
+                continue;
+            }
+            Some(td) => td.clone(),
+        };
+        let frame = &td[1];
+        let prot_id = &td[6];
+        let match_flag = &td[7];
+        if match_flag == "missing_nucleotides" {
+            cols[6] = "0".into();
+            cols[7] = "0".into();
+            cols[3] = format!("{};{prot_id};missing;{match_flag};missing;missing", cols[3]);
+            writeln!(out, "{}", cols.join("\t"))?;
+            continue;
+        }
+
+        let trans_start: i64 = cols[1].parse()?;
+        let block_start_list: Vec<i64> = cols[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let strand = cols[5].chars().next().unwrap_or('+');
+        let prot_start: i64 = td[4].parse::<i64>()? - 1;
+        let nuc_start: i64 = td[2].parse()?;
+        let nuc_end: i64 = td[3].parse()?;
+        let tlen = trans_len[&trans_id];
+
+        let (cds_rel_start, cds_rel_end) = if strand == '+' {
+            let end = if stop == "include_stop" { nuc_end + 1 } else { nuc_end - 2 };
+            (nuc_start, end)
+        } else {
+            let start = if stop == "include_stop" {
+                tlen - (nuc_end + 1)
+            } else {
+                tlen - (nuc_end - 2)
+            };
+            (start, tlen - nuc_start)
+        };
+
+        let mut block_sum = 0i64;
+        let (mut exon_cds_start, mut exon_cds_end) = (0usize, 0usize);
+        let (mut cds_coord_start, mut cds_coord_end) = (0i64, 0i64);
+        let mut exon_start_list = Vec::new();
+        let mut exon_end_list = Vec::new();
+        for (i, &block_size) in block_list.iter().enumerate() {
+            let prev = block_sum;
+            block_sum += block_size;
+            let es = trans_start + block_start_list[i];
+            exon_start_list.push(es);
+            exon_end_list.push(es + block_size);
+            if cds_rel_start >= prev && cds_rel_start < block_sum {
+                exon_cds_start = i;
+                cds_coord_start = trans_start + block_start_list[i] + cds_rel_start - prev;
+            }
+            if cds_rel_end >= prev && cds_rel_end <= block_sum {
+                exon_cds_end = i;
+                cds_coord_end = trans_start + block_start_list[i] + cds_rel_end - prev;
+            }
+        }
+
+        let exon_nums = block_list.len();
+        let mut nmd_flag = "prot_ok".to_string();
+        if strand == '+' {
+            if exon_nums > exon_cds_end + 1 {
+                let stop_dist = exon_start_list[exon_nums - 1] - cds_coord_end;
+                if stop_dist > sj_dist {
+                    nmd_flag = format!("NMD{}", exon_nums - (exon_cds_end + 1));
+                }
+            }
+        } else if exon_cds_start > 0 {
+            let stop_dist = cds_coord_start - exon_end_list[0];
+            if stop_dist > sj_dist {
+                nmd_flag = format!("NMD{exon_cds_start}");
+            }
+        }
+
+        cols[6] = cds_coord_start.to_string();
+        cols[7] = cds_coord_end.to_string();
+        let degrade = if prot_start == 0 { "5prime_degrade" } else { "full_length" };
+        cols[3] = format!("{};{prot_id};{degrade};{match_flag};{nmd_flag};{frame}", cols[3]);
+        writeln!(out, "{}", cols.join("\t"))?;
+    }
+    Ok(())
+}
+
+fn read_lines(path: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let reader = tama_io::open_reader(path)?;
+    let mut out = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if !line.trim().is_empty() {
+            out.push(line);
+        }
+    }
+    Ok(out)
+}
+
+/// Load a FASTA as (id, uppercased seq) in order; id = first whitespace token.
+fn load_fasta(path: &std::path::Path) -> anyhow::Result<Vec<(String, String)>> {
+    let reader = tama_io::open_reader(path)?;
+    let mut out: Vec<(String, String)> = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(h) = line.strip_prefix('>') {
+            out.push((h.split_whitespace().next().unwrap_or("").to_string(), String::new()));
+        } else if let Some(last) = out.last_mut() {
+            last.1.push_str(line.trim_end());
+        }
+    }
+    for (_, s) in out.iter_mut() {
+        s.make_ascii_uppercase();
+    }
+    Ok(out)
 }
 
 /// Find ORFs in transcript sequences. Ports `tama_orf_seeker`.
