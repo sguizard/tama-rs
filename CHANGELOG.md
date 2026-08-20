@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-08-20
+
+Documentation release. No functional changes to any tool.
+
+### Added
+
+- **Documentation** under [`docs/`](docs/README.md): a program
+  [overview](docs/OVERVIEW.md) (purpose, Iso-Seq workflow, per-tool summary),
+  per-tool reference pages (inputs, outputs, every flag with its default), and
+  field-by-field [file-format](docs/file-formats.md) descriptions of the TAMA
+  BED12 dialect and the collapse/merge report files.
+- **Installation instructions** in the README for users new to Rust
+  (`cargo install --git …`, PATH setup, verification).
+- This **CHANGELOG**.
+
 ## [0.1.0] — 2026-08-20
 
 Initial release: a complete Rust rewrite of
@@ -24,11 +39,6 @@ Algorithms), the long-read (Iso-Seq / Nanopore) transcriptome annotation toolkit
   - `cleanup polya`, `split` (`fasta`, `sam`), `variants call`.
 - **Native Rust I/O** — no Python, BioPython, or samtools runtime dependency;
   the toolkit builds to one self-contained binary.
-- **Documentation** under [`docs/`](docs/README.md): a program
-  [overview](docs/OVERVIEW.md), per-tool reference pages, and field-by-field
-  [file-format](docs/file-formats.md) descriptions.
-- **Installation instructions** in the README for users new to Rust
-  (`cargo install --git …`).
 - Cargo workspace: `tama-core` (model + algorithms), `tama-io` (format I/O),
   `tama` (CLI).
 - CI (`.github/workflows/ci.yml`): rustfmt, clippy (`-D warnings`), build, test.
@@ -56,4 +66,5 @@ Affected: `collapse` `_trans_report` `collapse_error_nuc`; `merge`
 - **`merge`**: only `capped` sources are supported so far; `no_cap`/mixed-source
   merging and the `-s`/`-cds` source overrides are not yet ported.
 
+[0.1.1]: https://github.com/sguizard/tama-rs/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sguizard/tama-rs/releases/tag/v0.1.0
