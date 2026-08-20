@@ -1,0 +1,2 @@
+read_id	num_genes	all_gene_line	all_pos_line	all_trans_line
+r1	2	alt:G2,ref:G1	chr1:500-600,chr1:100-200	alt:G2.1,ref:G1.1

@@ -1,0 +1,3 @@
+merge_source	merge_trans_id
+ref	G3.1
+alt	G3.2

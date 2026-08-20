@@ -1,0 +1,14 @@
+num_diff_gene_reads: 1
+num_diff_trans_reads: 1
+num_merge_diff_gene: 2
+num_merge_diff_trans: 2
+this_source_diff_genes alt: 1
+this_source_diff_trans alt: 1
+this_source_diff_genes ref: 1
+this_source_diff_trans ref: 1
+only_source_num_genes alt: 1
+only_source_num_trans alt: 1
+only_source_num_genes ref: 1
+only_source_num_trans ref: 1
+total_one_source_genes_count: 2
+total_one_source_trans_count: 2

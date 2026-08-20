@@ -25,8 +25,24 @@ enum Cmd {
         #[arg(short = 'o', long)]
         output: std::path::PathBuf,
     },
-    /// Find model changes between annotations. (tama_find_model_changes)
-    ModelChanges,
+    /// Find model changes between two sources. (tama_find_model_changes)
+    ModelChanges {
+        /// Annotation BED file. (`-b`)
+        #[arg(short = 'b', long)]
+        bed: std::path::PathBuf,
+        /// Read support levels file. (`-r`)
+        #[arg(short = 'r', long)]
+        read: std::path::PathBuf,
+        /// Output prefix. (`-o`)
+        #[arg(short = 'o', long)]
+        output: String,
+        /// Reference source name. (`-ref`)
+        #[arg(long = "ref", default_value = "NA")]
+        ref_source: String,
+        /// Alternative source name. (`-alt`)
+        #[arg(long = "alt", default_value = "NA")]
+        alt_source: String,
+    },
     /// Sampling saturation curve from a read-support levels file. (tama_sampling_saturation_curve)
     Saturation {
         /// Read support levels file. (`-r`)
@@ -44,7 +60,9 @@ enum Cmd {
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::Degradation { capped, nocap, output } => degradation(&capped, &nocap, &output),
-        Cmd::ModelChanges => Err(super::not_implemented("stats model-changes")),
+        Cmd::ModelChanges { bed, read, output, ref_source, alt_source } => {
+            model_changes(&bed, &read, &output, &ref_source, &alt_source)
+        }
         Cmd::Saturation { report, bin, output } => saturation(&report, bin, &output),
     }
 }
@@ -164,6 +182,205 @@ fn fmt_float(x: f64) -> String {
     } else {
         format!("{x}")
     }
+}
+
+type StrSet = IndexMap<String, ()>;
+type NestedSet = IndexMap<String, StrSet>;
+
+/// Find reads mapping to different genes/transcripts between two sources.
+/// Ports `tama_find_model_changes`.
+fn model_changes(
+    bed: &std::path::Path,
+    read: &std::path::Path,
+    output_prefix: &str,
+    ref_source: &str,
+    alt_source: &str,
+) -> anyhow::Result<()> {
+    use std::io::BufRead;
+    let read_lines = |p: &std::path::Path| -> anyhow::Result<Vec<String>> {
+        let mut v = Vec::new();
+        for l in tama_io::open_reader(p)?.lines() {
+            let l = l?;
+            if !l.trim().is_empty() {
+                v.push(l);
+            }
+        }
+        Ok(v)
+    };
+
+    // gene -> [chrom, min_start, max_end]
+    let mut gene_pos: IndexMap<String, (String, i64, i64)> = IndexMap::new();
+    for line in read_lines(bed)? {
+        let c: Vec<&str> = line.split('\t').collect();
+        let gene_id = c[3].split(';').next().unwrap_or("").to_string();
+        let (chrom, ts, te): (String, i64, i64) = (c[0].to_string(), c[1].parse()?, c[2].parse()?);
+        gene_pos
+            .entry(gene_id)
+            .and_modify(|g| {
+                g.1 = g.1.min(ts);
+                g.2 = g.2.max(te);
+            })
+            .or_insert((chrom, ts, te));
+    }
+
+    // read -> source -> {gene}; read -> {gene}; read -> source -> {trans}
+    let mut read_src_gene: IndexMap<String, NestedSet> = IndexMap::new();
+    let mut read_gene: IndexMap<String, StrSet> = IndexMap::new();
+    let mut read_src_trans: IndexMap<String, NestedSet> = IndexMap::new();
+    let mut gene_source: IndexMap<String, StrSet> = IndexMap::new();
+    let mut trans_source: IndexMap<String, StrSet> = IndexMap::new();
+    let mut source_set: StrSet = IndexMap::new();
+    let mut all_reads: Vec<String> = Vec::new();
+
+    for line in read_lines(read)? {
+        if line.starts_with("merge_gene_id") {
+            continue;
+        }
+        let c: Vec<&str> = line.split('\t').collect();
+        let (mg, mt, sources, support) = (c[0], c[1], c[4], c[5]);
+        gene_source.entry(mg.to_string()).or_default();
+        trans_source.entry(mt.to_string()).or_default();
+        for s in sources.split(',') {
+            gene_source.get_mut(mg).unwrap().insert(s.to_string(), ());
+            trans_source.get_mut(mt).unwrap().insert(s.to_string(), ());
+            source_set.insert(s.to_string(), ());
+        }
+        for src_read in support.split(';') {
+            let (src, reads) = src_read.split_once(':').unwrap_or((src_read, ""));
+            for r in reads.split(',') {
+                if !read_src_gene.contains_key(r) {
+                    all_reads.push(r.to_string());
+                }
+                read_src_gene.entry(r.to_string()).or_default().entry(src.to_string()).or_default().insert(mg.to_string(), ());
+                read_gene.entry(r.to_string()).or_default().insert(mg.to_string(), ());
+                read_src_trans.entry(r.to_string()).or_default().entry(src.to_string()).or_default().insert(mt.to_string(), ());
+            }
+        }
+    }
+
+    let mut out_gene = tama_io::create_writer(format!("{output_prefix}_diff_genes.txt"))?;
+    let mut out_trans = tama_io::create_writer(format!("{output_prefix}_diff_trans.txt"))?;
+    let mut out_report = tama_io::create_writer(format!("{output_prefix}_diff_report.txt"))?;
+    let mut out_onegene = tama_io::create_writer(format!("{output_prefix}_diff_one_source_genes.txt"))?;
+    let mut out_onetrans = tama_io::create_writer(format!("{output_prefix}_diff_one_source_trans.txt"))?;
+    writeln!(out_gene, "read_id\tnum_genes\tall_gene_line\tall_pos_line\tall_trans_line")?;
+    writeln!(out_trans, "read_id\talt_trans_diff_count\talt_diff_trans_id_list_line\talt_trans_id_list_line\tref_trans_id_list_line")?;
+
+    let mut all_source_list: Vec<String> = source_set.keys().cloned().collect();
+    all_source_list.sort();
+    let mut diff_gene_src: IndexMap<String, StrSet> = IndexMap::new();
+    let mut diff_trans_src: IndexMap<String, StrSet> = IndexMap::new();
+    for s in &all_source_list {
+        diff_gene_src.insert(s.clone(), IndexMap::new());
+        diff_trans_src.insert(s.clone(), IndexMap::new());
+    }
+    let mut merge_diff_gene: StrSet = IndexMap::new();
+    let mut merge_diff_trans: StrSet = IndexMap::new();
+    let mut read_diff_gene: StrSet = IndexMap::new();
+    let mut read_diff_trans_count = 0usize;
+
+    for read_id in &all_reads {
+        let num_genes = read_gene[read_id].len();
+        if num_genes > 1 {
+            let (mut gene_lines, mut pos_lines, mut trans_lines) = (Vec::new(), Vec::new(), Vec::new());
+            for (src, genes) in &read_src_gene[read_id] {
+                for g in genes.keys() {
+                    let (chrom, gs, ge) = &gene_pos[g];
+                    pos_lines.push(format!("{chrom}:{gs}-{ge}"));
+                    gene_lines.push(format!("{src}:{g}"));
+                    diff_gene_src.get_mut(src).unwrap().insert(g.clone(), ());
+                    merge_diff_gene.insert(g.clone(), ());
+                }
+            }
+            for (src, ts) in &read_src_trans[read_id] {
+                for t in ts.keys() {
+                    trans_lines.push(format!("{src}:{t}"));
+                }
+            }
+            read_diff_gene.insert(read_id.clone(), ());
+            writeln!(out_gene, "{read_id}\t{num_genes}\t{}\t{}\t{}", gene_lines.join(","), pos_lines.join(","), trans_lines.join(","))?;
+            continue;
+        }
+
+        // transcript differences
+        let empty = IndexMap::new();
+        let src_trans = read_src_trans.get(read_id).unwrap_or(&empty);
+        let ref_trans: StrSet = src_trans.get(ref_source).cloned().unwrap_or_default();
+        let (mut alt_list, mut alt_diff, mut diff_count) = (Vec::new(), Vec::new(), 0usize);
+        let mut diff_flag = false;
+        if let Some(alt_ts) = src_trans.get(alt_source) {
+            for t in alt_ts.keys() {
+                alt_list.push(t.clone());
+                if !ref_trans.contains_key(t) && src_trans.contains_key(ref_source) {
+                    diff_flag = true;
+                    diff_count += 1;
+                    alt_diff.push(t.clone());
+                    diff_trans_src.get_mut(alt_source).unwrap().insert(t.clone(), ());
+                    merge_diff_trans.insert(t.clone(), ());
+                }
+            }
+        }
+        if !diff_flag {
+            continue;
+        }
+        let mut ref_list = Vec::new();
+        if let Some(ref_ts) = src_trans.get(ref_source) {
+            for t in ref_ts.keys() {
+                ref_list.push(t.clone());
+                diff_trans_src.get_mut(ref_source).unwrap().insert(t.clone(), ());
+                merge_diff_trans.insert(t.clone(), ());
+            }
+        } else {
+            continue; // read discarded in ref
+        }
+        read_diff_trans_count += 1;
+        writeln!(out_trans, "{read_id}\t{diff_count}\t{}\t{}\t{}", alt_diff.join(","), alt_list.join(","), ref_list.join(","))?;
+    }
+
+    writeln!(out_report, "num_diff_gene_reads: {}", read_diff_gene.len())?;
+    writeln!(out_report, "num_diff_trans_reads: {read_diff_trans_count}")?;
+    writeln!(out_report, "num_merge_diff_gene: {}", merge_diff_gene.len())?;
+    writeln!(out_report, "num_merge_diff_trans: {}", merge_diff_trans.len())?;
+    for s in &all_source_list {
+        writeln!(out_report, "this_source_diff_genes {s}: {}", diff_gene_src[s].len())?;
+        writeln!(out_report, "this_source_diff_trans {s}: {}", diff_trans_src[s].len())?;
+    }
+
+    writeln!(out_onegene, "merge_source\tmerge_gene_id")?;
+    writeln!(out_onetrans, "merge_source\tmerge_trans_id")?;
+    let mut only_gene: IndexMap<String, StrSet> = IndexMap::new();
+    let mut only_trans: IndexMap<String, StrSet> = IndexMap::new();
+    for s in &all_source_list {
+        only_gene.insert(s.clone(), IndexMap::new());
+        only_trans.insert(s.clone(), IndexMap::new());
+    }
+    for g in merge_diff_gene.keys() {
+        let srcs: Vec<String> = gene_source[g].keys().cloned().collect();
+        if srcs.len() == 1 {
+            only_gene.get_mut(&srcs[0]).unwrap().insert(g.clone(), ());
+            writeln!(out_onegene, "{}\t{g}", srcs[0])?;
+        }
+    }
+    for t in merge_diff_trans.keys() {
+        let srcs: Vec<String> = trans_source[t].keys().cloned().collect();
+        if srcs.len() == 1 {
+            let gene = t.split('.').next().unwrap_or(t);
+            if !only_gene[&srcs[0]].contains_key(gene) {
+                only_trans.get_mut(&srcs[0]).unwrap().insert(t.clone(), ());
+                writeln!(out_onetrans, "{}\t{t}", srcs[0])?;
+            }
+        }
+    }
+    let (mut tot_g, mut tot_t) = (0usize, 0usize);
+    for s in &all_source_list {
+        tot_g += only_gene[s].len();
+        tot_t += only_trans[s].len();
+        writeln!(out_report, "only_source_num_genes {s}: {}", only_gene[s].len())?;
+        writeln!(out_report, "only_source_num_trans {s}: {}", only_trans[s].len())?;
+    }
+    writeln!(out_report, "total_one_source_genes_count: {tot_g}")?;
+    writeln!(out_report, "total_one_source_trans_count: {tot_t}")?;
+    Ok(())
 }
 
 /// Sampling saturation curve. Ports `tama_sampling_saturation_curve`.

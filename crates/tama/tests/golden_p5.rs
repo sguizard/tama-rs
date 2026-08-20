@@ -177,6 +177,38 @@ fn filter_fragments_matches_golden() {
 }
 
 #[test]
+fn stats_model_changes_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p5_mc_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prefix = dir.join("out");
+    assert!(tama()
+        .args(["stats", "model-changes", "-b"])
+        .arg(r.join("test_data/p5/mc_anno.bed"))
+        .arg("-r")
+        .arg(r.join("test_data/p5/mc_levels.txt"))
+        .arg("-o")
+        .arg(&prefix)
+        .args(["--ref", "ref", "--alt", "alt"])
+        .status()
+        .unwrap()
+        .success());
+    let p = prefix.display();
+    let sorted = |s: String| -> Vec<String> {
+        let mut v: Vec<String> = s.lines().map(String::from).collect();
+        v.sort();
+        v
+    };
+    // reports/one-source files are order-insensitive byte matches
+    for suf in ["_diff_report.txt", "_diff_one_source_genes.txt", "_diff_one_source_trans.txt"] {
+        let mine = sorted(read(PathBuf::from(format!("{p}{suf}"))));
+        let gold = sorted(read(r.join(format!("tests/golden_p5/model_changes{suf}"))));
+        assert_eq!(mine, gold, "{suf}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn stats_degradation_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p5_deg_{}.txt", std::process::id()));

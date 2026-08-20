@@ -1,0 +1,2 @@
+read_id	alt_trans_diff_count	alt_diff_trans_id_list_line	alt_trans_id_list_line	ref_trans_id_list_line
+r2	1	G3.2	G3.2	G3.1

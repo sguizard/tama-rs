@@ -1,0 +1,5 @@
+merge_gene_id	merge_trans_id	gene_read_count	trans_read_count	source_line	support_line
+G1	G1.1	2	2	ref	ref:r1,r3
+G2	G2.1	1	1	alt	alt:r1
+G3	G3.1	1	1	ref	ref:r2
+G3	G3.2	1	1	alt	alt:r2

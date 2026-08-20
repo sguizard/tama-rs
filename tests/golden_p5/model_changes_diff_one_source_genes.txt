@@ -1,0 +1,3 @@
+merge_source	merge_gene_id
+alt	G2
+ref	G1
