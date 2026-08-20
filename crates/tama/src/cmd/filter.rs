@@ -35,7 +35,32 @@ enum Cmd {
         overlap_percent: i64,
     },
     /// Remove poly-A models by level. (tama_remove_polya_models_levels)
-    Polya,
+    Polya {
+        /// Annotation BED file. (`-b`)
+        #[arg(short = 'b', long)]
+        bed: std::path::PathBuf,
+        /// Filelist: `source_name<TAB>polya_file`. (`-f`)
+        #[arg(short = 'f', long)]
+        filelist: std::path::PathBuf,
+        /// Read support levels file. (`-r`)
+        #[arg(short = 'r', long)]
+        read: std::path::PathBuf,
+        /// Output prefix. (`-o`)
+        #[arg(short = 'o', long)]
+        output: String,
+        /// Percent poly-A threshold. (`-p`)
+        #[arg(short = 'p', long, default_value_t = 75.0)]
+        percent: f64,
+        /// Removal level: `gene` or `transcript`. (`-l`)
+        #[arg(short = 'l', long, default_value = "gene")]
+        level: String,
+        /// `all_polya` or `singleton_polya`. (`-a`)
+        #[arg(short = 'a', long, default_value = "singleton_polya")]
+        support: String,
+        /// Multi-exon handling: `keep_multi` or `remove_multi`. (`-k`)
+        #[arg(short = 'k', long, default_value = "remove_multi")]
+        multi: String,
+    },
     /// Remove single-read models by level. (tama_remove_single_read_models_levels)
     SingleRead {
         /// Annotation BED file. (`-b`)
@@ -71,7 +96,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         Cmd::Fragments { bed, output, wobble, ends_wobble, overlap_percent } => {
             fragments(&bed, &output, wobble, ends_wobble, overlap_percent)
         }
-        Cmd::Polya => Err(super::not_implemented("filter polya")),
+        Cmd::Polya { bed, filelist, read, output, percent, level, support, multi } => {
+            polya(&bed, &filelist, &read, &output, percent, &level, &support, &multi)
+        }
     }
 }
 
@@ -525,6 +552,215 @@ fn fragments(
                 writeln!(out_discard, "{}", tx.format_bed_line())?;
             } else {
                 writeln!(out_bed, "{}", tx.format_bed_line())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read the merge read-support levels file into per-trans read/source maps.
+/// Returns (trans -> reads, trans -> source -> reads).
+type SupportMaps = (
+    IndexMap<String, IndexSet<String>>,
+    IndexMap<String, IndexMap<String, IndexSet<String>>>,
+);
+fn read_support_levels(path: &std::path::Path) -> anyhow::Result<SupportMaps> {
+    let mut trans_reads: IndexMap<String, IndexSet<String>> = IndexMap::new();
+    let mut source_reads: IndexMap<String, IndexMap<String, IndexSet<String>>> = IndexMap::new();
+    for line in read_lines(path)? {
+        if line.starts_with("merge_gene_id") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        let trans_id = cols[1].to_string();
+        trans_reads.entry(trans_id.clone()).or_default();
+        let smap = source_reads.entry(trans_id.clone()).or_default();
+        for src_read in cols[5].split(';') {
+            let (src, reads) = src_read.split_once(':').unwrap_or((src_read, ""));
+            let slot = smap.entry(src.to_string()).or_default();
+            for r in reads.split(',') {
+                trans_reads.get_mut(&trans_id).unwrap().insert(r.to_string());
+                slot.insert(r.to_string());
+            }
+        }
+    }
+    Ok((trans_reads, source_reads))
+}
+
+/// Remove poly-A run-on models. Ports `tama_remove_polya_models_levels`.
+#[allow(clippy::too_many_arguments)]
+fn polya(
+    bed: &std::path::Path,
+    filelist: &std::path::Path,
+    read: &std::path::Path,
+    output_prefix: &str,
+    threshold: f64,
+    level: &str,
+    support_flag: &str,
+    multi: &str,
+) -> anyhow::Result<()> {
+    let (merge_trans_read, merge_source_read) = read_support_levels(read)?;
+
+    // source -> read -> polya line fields
+    let mut source_polya: IndexMap<String, IndexMap<String, Vec<String>>> = IndexMap::new();
+    for line in read_lines(filelist)? {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split('\t').collect();
+        let (source_name, polya_file) = (f[0].to_string(), f[1]);
+        let smap = source_polya.entry(source_name).or_default();
+        for pl in read_lines(std::path::Path::new(polya_file))? {
+            if pl.starts_with("cluster_id") {
+                continue;
+            }
+            let ps: Vec<String> = pl.split('\t').map(String::from).collect();
+            smap.insert(ps[0].clone(), ps);
+        }
+    }
+
+    // bed: gene order, per-gene trans, cols, exons
+    let mut gene_list: Vec<String> = Vec::new();
+    let mut gene_trans_list: IndexMap<String, Vec<String>> = IndexMap::new();
+    let mut trans_cols: IndexMap<String, Vec<String>> = IndexMap::new();
+    let mut trans_exons: IndexMap<String, usize> = IndexMap::new();
+    for line in read_lines(bed)? {
+        let cols: Vec<String> = line.split('\t').map(String::from).collect();
+        let id_split: Vec<&str> = cols[3].split(';').collect();
+        let (gene_id, trans_id) = (id_split[0].to_string(), id_split[1].to_string());
+        if !gene_trans_list.contains_key(&gene_id) {
+            gene_list.push(gene_id.clone());
+        }
+        gene_trans_list.entry(gene_id).or_default().push(trans_id.clone());
+        trans_exons.insert(trans_id.clone(), cols[9].parse()?);
+        trans_cols.insert(trans_id, cols);
+    }
+
+    let mut out_bed = tama_io::create_writer(format!("{output_prefix}.bed"))?;
+    let mut out_report = tama_io::create_writer(format!("{output_prefix}_polya_report.txt"))?;
+    let mut out_polya = tama_io::create_writer(format!("{output_prefix}_trash_polya.bed"))?;
+    let mut out_support = tama_io::create_writer(format!("{output_prefix}_polya_support.txt"))?;
+    writeln!(out_report, "old_gene_id\told_trans_id\tsource_line\tnum_reads\tnew_gene_id\tnew_trans_id\tnum_exons")?;
+    writeln!(out_support, "trans_id\tsource\tread_id\tsource_trans_id\tstrand\tpercent_polya\ta_count\tpolya_seq")?;
+
+    let mut new_gene_num = 0usize;
+
+    for gene_id in &gene_list {
+        let trans_list = &gene_trans_list[gene_id];
+        let mut is_polya_trans: IndexSet<String> = IndexSet::new();
+        // trans -> read -> polya fields; read -> source; all-read/polya sets
+        let mut trans_read_polya: IndexMap<String, IndexMap<String, Vec<String>>> = IndexMap::new();
+        let mut read_source: IndexMap<String, String> = IndexMap::new();
+        let mut polya_reads: IndexSet<String> = IndexSet::new();
+        let mut trans_reads_here: IndexMap<String, IndexSet<String>> = IndexMap::new();
+
+        for trans_id in trans_list {
+            let mut polya_count = 0usize;
+            let total = merge_trans_read.get(trans_id).map(|s| s.len()).unwrap_or(0);
+            if let Some(sm) = merge_source_read.get(trans_id) {
+                for (src, reads) in sm {
+                    for r in reads {
+                        trans_reads_here.entry(trans_id.clone()).or_default().insert(r.clone());
+                        read_source.entry(r.clone()).or_insert_with(|| src.clone());
+                        if let Some(fields) = source_polya.get(src).and_then(|m| m.get(r)) {
+                            let pct: f64 = fields[3].parse().unwrap_or(0.0);
+                            if pct >= threshold {
+                                polya_count += 1;
+                                polya_reads.insert(r.clone());
+                                trans_read_polya.entry(trans_id.clone()).or_default().insert(r.clone(), fields.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            if total > 0 && polya_count == total {
+                is_polya_trans.insert(trans_id.clone());
+            }
+        }
+
+        // leftover-variable quirk: the original reuses the last trans_id / read count
+        let last_trans = trans_list.last().unwrap();
+        let leftover_source_line = merge_source_read
+            .get(last_trans)
+            .map(|m| m.keys().cloned().collect::<Vec<_>>().join(","))
+            .unwrap_or_default();
+        let leftover_total_reads = merge_trans_read.get(last_trans).map(|s| s.len()).unwrap_or(0);
+
+        let mut keep: IndexSet<String> = IndexSet::new();
+        let mut remove: IndexSet<String> = IndexSet::new();
+        for t in trans_list {
+            let num_exons = trans_exons[t];
+            if is_polya_trans.contains(t) {
+                let total = merge_trans_read.get(t).map(|s| s.len()).unwrap_or(0);
+                let all_polya_keeps = || -> bool {
+                    let reads = trans_reads_here.get(t);
+                    let all = reads.map(|s| s.len()).unwrap_or(0);
+                    let pc = reads
+                        .map(|s| s.iter().filter(|r| polya_reads.contains(*r)).count())
+                        .unwrap_or(0);
+                    pc < all
+                };
+                let mut kept = false;
+                if level == "gene" {
+                    if trans_list.len() > 1 {
+                        kept = true;
+                    } else if multi == "keep_multi" && num_exons > 1 {
+                        kept = true;
+                    } else if support_flag == "singleton_polya" && total > 1 {
+                        kept = true;
+                    } else if support_flag == "all_polya" && all_polya_keeps() {
+                        kept = true;
+                    }
+                } else {
+                    // transcript level
+                    if multi == "keep_multi" && num_exons > 1 {
+                        kept = true;
+                    } else if support_flag == "singleton_polya" && total > 1 {
+                        kept = true;
+                    } else if support_flag == "all_polya" && all_polya_keeps() {
+                        kept = true;
+                    }
+                }
+                if kept {
+                    keep.insert(t.clone());
+                } else {
+                    remove.insert(t.clone());
+                }
+            } else {
+                keep.insert(t.clone());
+            }
+        }
+
+        let new_gene_id = if !keep.is_empty() {
+            new_gene_num += 1;
+            format!("G{new_gene_num}")
+        } else {
+            String::new()
+        };
+        let mut new_trans_num = 0usize;
+        for t in trans_list {
+            let num_exons = trans_exons[t];
+            if remove.contains(t) {
+                writeln!(out_polya, "{}", trans_cols[t].join("\t"))?;
+                let (ng, nt) = if level == "gene" || keep.is_empty() {
+                    ("removed_gene".to_string(), "removed_transcript".to_string())
+                } else {
+                    (new_gene_id.clone(), "removed_transcript".to_string())
+                };
+                writeln!(out_report, "{gene_id}\t{t}\t{leftover_source_line}\t{leftover_total_reads}\t{ng}\t{nt}\t{num_exons}")?;
+                if let Some(rp) = trans_read_polya.get(t) {
+                    for (read_id, fields) in rp {
+                        let src = &read_source[read_id];
+                        writeln!(out_support, "{t}\t{src}\t{}", fields.join("\t"))?;
+                    }
+                }
+            } else if keep.contains(t) {
+                new_trans_num += 1;
+                let new_trans_id = format!("{new_gene_id}.{new_trans_num}");
+                let mut cols = trans_cols[t].clone();
+                cols[3] = format!("{new_gene_id};{new_trans_id}");
+                writeln!(out_bed, "{}", cols.join("\t"))?;
+                writeln!(out_report, "{gene_id}\t{t}\t{leftover_source_line}\t{leftover_total_reads}\t{new_gene_id}\t{new_trans_id}\t{num_exons}")?;
             }
         }
     }

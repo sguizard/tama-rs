@@ -114,6 +114,46 @@ fn filter_single_read_matches_golden() {
 }
 
 #[test]
+fn filter_polya_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p5_pa_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let filelist = dir.join("filelist.txt");
+    std::fs::write(
+        &filelist,
+        format!("testmerge\t{}\n", r.join("tests/golden/collapse_polya.txt").display()),
+    )
+    .unwrap();
+    let prefix = dir.join("out");
+    assert!(tama()
+        .args(["filter", "polya", "-b"])
+        .arg(r.join("tests/golden/collapse.bed"))
+        .arg("-f")
+        .arg(&filelist)
+        .arg("-r")
+        .arg(r.join("tests/golden_p5/levels_no_merge.txt"))
+        .arg("-o")
+        .arg(&prefix)
+        .status()
+        .unwrap()
+        .success());
+    let p = prefix.display();
+    for (suf, gold) in [
+        (".bed", "polya.bed"),
+        ("_polya_report.txt", "polya_polya_report.txt"),
+        ("_trash_polya.bed", "polya_trash_polya.bed"),
+        ("_polya_support.txt", "polya_polya_support.txt"),
+    ] {
+        assert_eq!(
+            read(PathBuf::from(format!("{p}{suf}"))),
+            read(r.join(format!("tests/golden_p5/{gold}"))),
+            "{suf}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn filter_fragments_matches_golden() {
     let r = root();
     let dir = std::env::temp_dir().join(format!("p5_frag_{}", std::process::id()));

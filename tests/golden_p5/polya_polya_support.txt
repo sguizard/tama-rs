@@ -1,0 +1,1 @@
+trans_id	source	read_id	source_trans_id	strand	percent_polya	a_count	polya_seq
