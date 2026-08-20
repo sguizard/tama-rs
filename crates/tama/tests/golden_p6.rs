@@ -29,6 +29,22 @@ fn format_bed2gtf_orf_matches_golden() {
 }
 
 #[test]
+fn orf_extract_cds_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p6_ec_{}.bed", std::process::id()));
+    assert!(tama()
+        .args(["orf", "extract-cds", "-b"])
+        .arg(r.join("test_data/p6/orf_nmd.bed"))
+        .args(["-s", "no_stop_codon", "-o"])
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/extract_cds.bed")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn orf_add_cds_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p6_add_{}.bed", std::process::id()));

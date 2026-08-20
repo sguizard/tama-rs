@@ -22,7 +22,17 @@ enum Cmd {
         output: std::path::PathBuf,
     },
     /// Extract CDS regions from a BED. (tama_bed_extract_cds)
-    ExtractCds,
+    ExtractCds {
+        /// ORF/NMD BED file. (`-b`)
+        #[arg(short = 'b', long)]
+        bed: std::path::PathBuf,
+        /// Stop codon flag: `include_stop` or anything else to exclude. (`-s`)
+        #[arg(short = 's', long, default_value = "no_stop_codon")]
+        stop: String,
+        /// Output BED file. (`-o`)
+        #[arg(short = 'o', long)]
+        output: std::path::PathBuf,
+    },
     /// Add CDS regions to a BED. (tama_cds_regions_bed_add)
     AddCds {
         /// Blastp parse file. (`-p`)
@@ -51,7 +61,7 @@ enum Cmd {
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::Seek { fasta, output } => seek(&fasta, &output),
-        Cmd::ExtractCds => Err(super::not_implemented("orf extract-cds")),
+        Cmd::ExtractCds { bed, stop, output } => extract_cds(&bed, &stop, &output),
         Cmd::AddCds { parse, bed, fasta, output, stop, sj_dist } => {
             add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist)
         }
@@ -313,6 +323,104 @@ fn add_cds(
         cols[7] = cds_coord_end.to_string();
         let degrade = if prot_start == 0 { "5prime_degrade" } else { "full_length" };
         cols[3] = format!("{};{prot_id};{degrade};{match_flag};{nmd_flag};{frame}", cols[3]);
+        writeln!(out, "{}", cols.join("\t"))?;
+    }
+    Ok(())
+}
+
+/// Extract the CDS region of each coding model as a new bed. Ports
+/// `tama_bed_extract_cds`.
+fn extract_cds(bed: &std::path::Path, stop: &str, output: &std::path::Path) -> anyhow::Result<()> {
+    let mut out = tama_io::create_writer(output)?;
+    for line in read_lines(bed)? {
+        let mut cols: Vec<String> = line.split('\t').map(String::from).collect();
+        let (cds_start_s, cds_end_s) = (cols[6].clone(), cols[7].clone());
+        if cds_start_s == "0" && cds_end_s == "0" {
+            continue;
+        }
+        let t0: i64 = cols[1].parse()?;
+        let strand = cols[5].chars().next().unwrap_or('+');
+        let sizes: Vec<i64> = cols[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let rels: Vec<i64> = cols[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        // 0-based exon coords, end inclusive (calc_end: start + block - 1)
+        let e_starts: Vec<i64> = rels.iter().map(|r| t0 + r).collect();
+        let e_ends: Vec<i64> = e_starts.iter().zip(&sizes).map(|(s, z)| s + z - 1).collect();
+
+        // full spliced coordinate list + index lookup
+        let mut coord_list: Vec<i64> = Vec::new();
+        let mut coord_idx: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+        for (i, &es) in e_starts.iter().enumerate() {
+            for c in es..=e_ends[i] {
+                coord_idx.insert(c, coord_list.len());
+                coord_list.push(c);
+            }
+        }
+
+        let mut cds_start: i64 = cds_start_s.parse()?;
+        let cds_end: i64 = cds_end_s.parse()?;
+
+        // adjust cds end down one transcript position
+        let mut cds_end_adj = if strand == '-' && cds_end == *coord_list.last().unwrap() + 1 {
+            *coord_list.last().unwrap()
+        } else {
+            let idx = coord_idx[&cds_end];
+            coord_list[idx - 1]
+        };
+
+        if stop == "include_stop" {
+            if strand == '+' {
+                let idx = coord_idx[&cds_end_adj];
+                cds_end_adj = coord_list[idx + 3];
+            } else {
+                let idx = coord_idx[&cds_start];
+                cds_start = coord_list[idx - 3];
+            }
+        }
+
+        // clip exons to the CDS region
+        let mut cds_e_starts = Vec::new();
+        let mut cds_e_ends = Vec::new();
+        for (i, &e_start) in e_starts.iter().enumerate() {
+            let e_end = e_ends[i];
+            let mut ces = e_start;
+            let mut cee = e_end;
+            if cds_start >= e_start && cds_start <= e_end {
+                ces = cds_start;
+            }
+            if cds_end_adj >= e_start && cds_end_adj <= e_end {
+                cee = cds_end_adj;
+            }
+            if cds_start > e_end {
+                continue;
+            }
+            if cds_end_adj < e_start {
+                continue;
+            }
+            cds_e_starts.push(ces);
+            cds_e_ends.push(cee);
+        }
+        let new_cds_start = cds_e_starts[0];
+        let new_cds_end_adj = *cds_e_ends.last().unwrap();
+
+        let mut blocks = String::new();
+        let mut starts = String::new();
+        for (i, &ces) in cds_e_starts.iter().enumerate() {
+            if i > 0 {
+                blocks.push(',');
+                starts.push(',');
+            }
+            starts.push_str(&(ces - new_cds_start).to_string());
+            blocks.push_str(&(1 + cds_e_ends[i] - ces).to_string());
+        }
+
+        cols[1] = new_cds_start.to_string();
+        cols[2] = (new_cds_end_adj + 1).to_string();
+        cols[6] = new_cds_start.to_string();
+        cols[7] = (new_cds_end_adj + 1).to_string();
+        cols[9] = cds_e_starts.len().to_string();
+        cols[10] = blocks;
+        cols[11] = starts;
+        cols[3] = format!("cds;{}", cols[3]);
         writeln!(out, "{}", cols.join("\t"))?;
     }
     Ok(())
