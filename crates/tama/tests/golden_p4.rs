@@ -159,6 +159,64 @@ fn split_sam_matches_golden() {
 }
 
 #[test]
+fn support_merge_collapse_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p4_mc_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let tr = r.join("tests/golden/collapse_trans_read.bed");
+
+    // build a collapse support file (no-cluster mode) for the merge source.
+    let support = dir.join("mc_support.txt");
+    assert!(tama()
+        .args(["support", "collapse-cluster"])
+        .arg(&tr)
+        .arg(&tr)
+        .arg(&support)
+        .status()
+        .unwrap()
+        .success());
+
+    // filelist: filename<TAB>prefix<TAB>dir/
+    let filelist = dir.join("filelist.txt");
+    std::fs::write(&filelist, format!("mc_support.txt\ttestmerge\t{}/\n", dir.display())).unwrap();
+
+    let out = dir.join("out.txt");
+    assert!(tama()
+        .args(["support", "merge-collapse"])
+        .arg(r.join("tests/golden_merge/merged_merge.txt"))
+        .arg(&filelist)
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success());
+
+    // cols 1-5 exact; source_trans_line / source_read_line compared as sets.
+    let norm = |s: &str| -> Vec<String> {
+        let mut rows: Vec<String> = s
+            .lines()
+            .skip(1)
+            .map(|l| {
+                let c: Vec<&str> = l.split('\t').collect();
+                let head = c[..5.min(c.len())].join("\t");
+                let mut st: Vec<&str> = c.get(5).map(|x| x.split(',').collect()).unwrap_or_default();
+                st.sort_unstable();
+                let mut rd: Vec<&str> =
+                    c.get(6).map(|x| x.split([';', ',']).collect()).unwrap_or_default();
+                rd.sort_unstable();
+                format!("{head}\t{}\t{}", st.join(","), rd.join(","))
+            })
+            .collect();
+        rows.sort_unstable();
+        rows
+    };
+    assert_eq!(
+        norm(&read(out)),
+        norm(&read(r.join("tests/golden_p4/support_merge_collapse.txt")))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn support_collapse_cluster_matches_golden() {
     // no-cluster mode: trans_read.bed as both collapse and cluster input.
     let r = root();

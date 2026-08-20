@@ -26,7 +26,14 @@ enum Cmd {
     /// Read support levels. (tama_read_support_levels)
     Levels,
     /// Read support after merging collapse outputs. (tama_read_support_merge_collapse)
-    MergeCollapse,
+    MergeCollapse {
+        /// tama merge `<prefix>_merge.txt`.
+        merge: std::path::PathBuf,
+        /// Filelist: `support_filename<TAB>prefix<TAB>dir/` per source.
+        filelist: std::path::PathBuf,
+        /// Output file.
+        output: std::path::PathBuf,
+    },
 }
 
 pub fn run(args: Args) -> anyhow::Result<()> {
@@ -35,8 +42,152 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             collapse_cluster(&collapse, &cluster, &output)
         }
         Cmd::Levels => Err(super::not_implemented("support levels")),
-        Cmd::MergeCollapse => Err(super::not_implemented("support merge-collapse")),
+        Cmd::MergeCollapse { merge, filelist, output } => {
+            merge_collapse(&merge, &filelist, &output)
+        }
     }
+}
+
+/// Read support per merged transcript from collapse support files.
+/// Ports `tama_read_support_merge_collapse`.
+fn merge_collapse(
+    merge: &std::path::Path,
+    filelist: &std::path::Path,
+    output: &std::path::Path,
+) -> anyhow::Result<()> {
+    // prefix -> trans_id -> trans_num_reads
+    let mut trans_read: IndexMap<String, IndexMap<String, i64>> = IndexMap::new();
+    // prefix -> gene -> trans -> set(read)
+    type ReadTree = IndexMap<String, IndexMap<String, IndexMap<String, IndexSet<String>>>>;
+    let mut gene_trans_read: ReadTree = IndexMap::new();
+    let mut prefix_list: Vec<String> = Vec::new();
+
+    for fline in read_lines(filelist)? {
+        if fline.trim().is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = fline.split('\t').collect();
+        let (filename, prefix, fpath) = (f[0], f[1].to_string(), f[2]);
+        prefix_list.push(prefix.clone());
+        let support_path = std::path::PathBuf::from(format!("{fpath}{filename}"));
+        if trans_read.contains_key(&prefix) {
+            bail!("duplicate prefix {prefix}");
+        }
+        trans_read.insert(prefix.clone(), IndexMap::new());
+        gene_trans_read.insert(prefix.clone(), IndexMap::new());
+
+        for line in read_lines(&support_path)? {
+            if line.starts_with("gene_id") {
+                continue;
+            }
+            let c: Vec<&str> = line.split('\t').collect();
+            let (gene_id, trans_id, trans_num_reads, cluster_line) =
+                (c[0].to_string(), c[1].to_string(), c[3].parse::<i64>()?, c[4]);
+            let mut reads: Vec<String> = Vec::new();
+            for cg in cluster_line.split(';') {
+                if let Some(rl) = cg.split(':').nth(1) {
+                    reads.extend(rl.split(',').map(String::from));
+                }
+            }
+            trans_read.get_mut(&prefix).unwrap().insert(trans_id.clone(), trans_num_reads);
+            let g = gene_trans_read
+                .get_mut(&prefix)
+                .unwrap()
+                .entry(gene_id)
+                .or_default()
+                .entry(trans_id)
+                .or_default();
+            for r in reads {
+                g.insert(r);
+            }
+        }
+    }
+
+    // parse merge file
+    let mut merge_gene_list: Vec<String> = Vec::new();
+    // merge_gene -> merge_trans -> prefix -> collapse_id -> set(read)
+    type MergeTree = IndexMap<String, IndexMap<String, IndexMap<String, IndexMap<String, IndexSet<String>>>>>;
+    let mut merge_tree: MergeTree = IndexMap::new();
+    let mut merge_gene_trans: IndexMap<String, Vec<String>> = IndexMap::new();
+
+    for line in read_lines(merge)? {
+        let cols: Vec<&str> = line.split('\t').collect();
+        let id_split: Vec<&str> = cols[3].split(';').collect();
+        let trans_id = id_split[0].to_string();
+        let support_id = id_split[1];
+        let gene_id = trans_id.split('.').next().unwrap_or(&trans_id).to_string();
+        let prefix = support_id.split('_').next().unwrap_or("").to_string();
+        let collapse_id = support_id.splitn(2, '_').nth(1).unwrap_or("").to_string();
+
+        if !merge_gene_trans.contains_key(&gene_id) {
+            merge_gene_list.push(gene_id.clone());
+            merge_gene_trans.insert(gene_id.clone(), Vec::new());
+        }
+        if !merge_gene_trans[&gene_id].contains(&trans_id) {
+            merge_gene_trans.get_mut(&gene_id).unwrap().push(trans_id.clone());
+        }
+
+        let source_gene_id = collapse_id.split('.').next().unwrap_or(&collapse_id).to_string();
+        let reads: Vec<String> = gene_trans_read
+            .get(&prefix)
+            .and_then(|g| g.get(&source_gene_id))
+            .and_then(|t| t.get(&collapse_id))
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
+
+        let slot = merge_tree
+            .entry(gene_id)
+            .or_default()
+            .entry(trans_id)
+            .or_default()
+            .entry(prefix)
+            .or_default()
+            .entry(collapse_id)
+            .or_default();
+        for r in reads {
+            slot.insert(r);
+        }
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    writeln!(out, "merge_gene_id\tmerge_trans_id\tgene_read_support\ttrans_read_support\tsource_prefix\tsource_trans_line\tsource_read_line")?;
+
+    for gene in &merge_gene_list {
+        let mut gene_reads: IndexSet<String> = IndexSet::new();
+        for tmap in merge_tree[gene].values() {
+            for pmap in tmap.values() {
+                for reads in pmap.values() {
+                    gene_reads.extend(reads.iter().cloned());
+                }
+            }
+        }
+        let gene_read_support = gene_reads.len();
+
+        for trans_id in &merge_gene_trans[gene] {
+            let mut trans_reads: IndexSet<String> = IndexSet::new();
+            let mut prefixes: Vec<String> = Vec::new();
+            let mut support_trans: Vec<String> = Vec::new();
+            let mut read_lines_out: Vec<String> = Vec::new();
+            for (prefix, cmap) in &merge_tree[gene][trans_id] {
+                prefixes.push(prefix.clone());
+                for (collapse_id, reads) in cmap {
+                    support_trans.push(format!("{prefix}_{collapse_id}"));
+                    let rl: Vec<String> = reads.iter().cloned().collect();
+                    read_lines_out.push(rl.join(","));
+                    trans_reads.extend(reads.iter().cloned());
+                }
+            }
+            writeln!(
+                out,
+                "{gene}\t{trans_id}\t{gene_read_support}\t{}\t{}\t{}\t{}",
+                trans_reads.len(),
+                prefixes.join(","),
+                support_trans.join(","),
+                read_lines_out.join(";")
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(PartialEq)]
