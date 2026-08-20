@@ -1,0 +1,13 @@
+#!genome-build test
+1	havana	gene	1000	5000	.	+	.	gene_id "ENSG001"; gene_biotype "protein_coding";
+1	havana	transcript	1000	5000	.	+	.	gene_id "ENSG001"; transcript_id "ENST001"; gene_biotype "protein_coding"; transcript_biotype "protein_coding";
+1	havana	exon	1000	1200	.	+	.	gene_id "ENSG001"; transcript_id "ENST001"; exon_number "1";
+1	havana	exon	2000	2500	.	+	.	gene_id "ENSG001"; transcript_id "ENST001"; exon_number "2";
+1	havana	CDS	1050	1200	.	+	0	gene_id "ENSG001"; transcript_id "ENST001";
+1	havana	CDS	2000	2400	.	+	0	gene_id "ENSG001"; transcript_id "ENST001";
+1	havana	start_codon	1050	1052	.	+	0	gene_id "ENSG001"; transcript_id "ENST001";
+1	havana	stop_codon	2401	2403	.	+	0	gene_id "ENSG001"; transcript_id "ENST001";
+1	havana	gene	8000	9000	.	-	.	gene_id "ENSG002"; gene_biotype "lincRNA";
+1	havana	transcript	8000	9000	.	-	.	gene_id "ENSG002"; transcript_id "ENST002"; gene_biotype "lincRNA"; transcript_biotype "lincRNA";
+1	havana	exon	8000	8300	.	-	.	gene_id "ENSG002"; transcript_id "ENST002"; exon_number "1";
+1	havana	exon	8700	9000	.	-	.	gene_id "ENSG002"; transcript_id "ENST002"; exon_number "2";

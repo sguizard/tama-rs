@@ -1,0 +1,8 @@
+#!gtf NCBI
+1	BestRefSeq	gene	1000	5000	.	+	.	gene_id "GENE1"; transcript_id "unknown_transcript_1";
+1	BestRefSeq	exon	1000	1200	.	+	.	gene_id "GENE1"; transcript_id "rna1"; exon_number "1";
+1	BestRefSeq	exon	2000	2500	.	+	.	gene_id "GENE1"; transcript_id "rna1"; exon_number "2";
+1	BestRefSeq	CDS	1050	1200	.	+	0	gene_id "GENE1"; transcript_id "rna1";
+1	BestRefSeq	CDS	2000	2400	.	+	0	gene_id "GENE1"; transcript_id "rna1";
+1	BestRefSeq	exon	8000	8300	.	-	.	gene_id "GENE2"; transcript_id "rna2"; exon_number "1";
+1	BestRefSeq	exon	8700	9000	.	-	.	gene_id "GENE2"; transcript_id "rna2"; exon_number "2";

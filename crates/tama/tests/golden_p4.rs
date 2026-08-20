@@ -49,6 +49,30 @@ fn gtf2bed_stringtie_matches_golden() {
     let _ = std::fs::remove_file(out);
 }
 
+fn gtf2bed_case(source: &str, input: &str, golden: &str) {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p4_{source}_{}.bed", std::process::id()));
+    let status = tama()
+        .args(["format", "gtf2bed", "--source", source])
+        .arg(r.join(input))
+        .arg(&out)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(read(out.clone()), read(r.join(golden)), "gtf2bed {source}");
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
+fn gtf2bed_ensembl_matches_golden() {
+    gtf2bed_case("ensembl", "test_data/p4/ensembl.gtf", "tests/golden_p4/gtf2bed_ensembl.bed");
+}
+
+#[test]
+fn gtf2bed_ncbi_matches_golden() {
+    gtf2bed_case("ncbi", "test_data/p4/ncbi.gtf", "tests/golden_p4/gtf2bed_ncbi.bed");
+}
+
 #[test]
 fn gff2bed_cupcake_matches_golden() {
     let r = root();

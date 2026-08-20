@@ -99,8 +99,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         Cmd::Bed2gtfOrf => Err(super::not_implemented("format bed2gtf-orf")),
         Cmd::Gtf2bed { source, gtf, output } => match source {
             GtfSource::Stringtie => gtf2bed_stringtie(&gtf, &output),
-            GtfSource::Ensembl => Err(super::not_implemented("format gtf2bed --source ensembl")),
-            GtfSource::Ncbi => Err(super::not_implemented("format gtf2bed --source ncbi")),
+            GtfSource::Ensembl => gtf2bed_ensembl(&gtf, &output),
+            GtfSource::Ncbi => gtf2bed_ncbi(&gtf, &output),
         },
         Cmd::Gff2bed { source, gff, output } => match source {
             GffSource::Cupcake => gff2bed_cupcake(&gff, &output),
@@ -164,6 +164,210 @@ fn bed2gtf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()
         }
     }
     Ok(())
+}
+
+/// One attribute lookup: value of the first attribute whose key contains `key`.
+fn gtf_attr<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
+    for field in attrs.split(';') {
+        if field.contains(key) && field.contains('"') {
+            return field.split('"').nth(1);
+        }
+    }
+    None
+}
+
+/// A transcript accumulated from Ensembl/NCBI GTF feature lines.
+#[derive(Default)]
+struct EnsTx {
+    chrom: String,
+    strand: char,
+    t_start: i64,
+    t_end: i64,
+    gene_id: String,
+    gene_class: String,
+    trans_class: String,
+    e_starts: Vec<i64>,
+    e_ends: Vec<i64>,
+    c_starts: Vec<i64>,
+    c_ends: Vec<i64>,
+}
+
+/// Convert an Ensembl GTF to TAMA BED12. Ports `tama_format_gtf_to_bed12_ensembl`.
+/// CDS thick bounds are `min(cds_start)-1 .. max(cds_end)` (or the transcript
+/// bounds when non-coding). The original's codon/UTR checks only emit warnings,
+/// so they do not affect output and are omitted.
+fn gtf2bed_ensembl(gtf: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    let lines = read_all_lines(gtf)?;
+    let mut order: Vec<String> = Vec::new();
+    let mut trans: IndexMap<String, EnsTx> = IndexMap::new();
+
+    // pass 1: transcripts
+    for line in &lines {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 || cols[2] != "transcript" {
+            continue;
+        }
+        let trans_id = gtf_attr(cols[8], "transcript_id").unwrap_or("").to_string();
+        let tx = EnsTx {
+            chrom: cols[0].to_string(),
+            strand: cols[6].chars().next().unwrap_or('+'),
+            t_start: cols[3].parse::<i64>()? - 1,
+            t_end: cols[4].parse()?,
+            gene_id: gtf_attr(cols[8], "gene_id").unwrap_or("").to_string(),
+            gene_class: gtf_attr(cols[8], "gene_biotype").unwrap_or("NA").to_string(),
+            trans_class: gtf_attr(cols[8], "transcript_biotype").unwrap_or("NA").to_string(),
+            ..Default::default()
+        };
+        if !trans.contains_key(&trans_id) {
+            order.push(trans_id.clone());
+        }
+        trans.insert(trans_id, tx);
+    }
+
+    // pass 2: exons and CDS
+    for line in &lines {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let feature = cols[2];
+        if feature != "exon" && feature != "CDS" {
+            continue;
+        }
+        let trans_id = gtf_attr(cols[8], "transcript_id").unwrap_or("");
+        let Some(tx) = trans.get_mut(trans_id) else { continue };
+        let (start, end): (i64, i64) = (cols[3].parse()?, cols[4].parse()?);
+        if feature == "exon" {
+            tx.e_starts.push(start - 1);
+            tx.e_ends.push(end);
+        } else {
+            tx.c_starts.push(start);
+            tx.c_ends.push(end);
+        }
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for trans_id in &order {
+        let tx = &trans[trans_id];
+        let mut e_starts = tx.e_starts.clone();
+        let mut e_ends = tx.e_ends.clone();
+        e_starts.sort_unstable();
+        e_ends.sort_unstable();
+        let (mut blocks, mut rel_starts) = (String::new(), String::new());
+        for k in 0..e_starts.len() {
+            if k > 0 {
+                blocks.push(',');
+                rel_starts.push(',');
+            }
+            blocks.push_str(&(e_ends[k] - e_starts[k]).to_string());
+            rel_starts.push_str(&(e_starts[k] - tx.t_start).to_string());
+        }
+        let (cds_start, cds_end) = if tx.c_starts.is_empty() {
+            (tx.t_start, tx.t_start)
+        } else {
+            let mut cs = tx.c_starts.clone();
+            let mut ce = tx.c_ends.clone();
+            cs.sort_unstable();
+            ce.sort_unstable();
+            (cs[0] - 1, *ce.last().unwrap())
+        };
+        writeln!(
+            out,
+            "{}\t{}\t{}\t{};{};{};{}\t40\t{}\t{cds_start}\t{cds_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
+            tx.chrom, tx.t_start, tx.t_end, tx.gene_id, trans_id, tx.gene_class, tx.trans_class,
+            tx.strand, e_starts.len()
+        )?;
+    }
+    Ok(())
+}
+
+/// Convert an NCBI GTF to TAMA BED12. Ports `tama_format_gtf_to_bed12_ncbi`.
+/// Unlike Ensembl, transcripts are derived from `exon` lines (bounds = min/max
+/// exon), IDs are `gene;trans`, and `unknown_transcript_1` records are skipped.
+fn gtf2bed_ncbi(gtf: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    let lines = read_all_lines(gtf)?;
+    let mut order: Vec<String> = Vec::new();
+    let mut trans: IndexMap<String, EnsTx> = IndexMap::new();
+
+    for line in &lines {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let feature = cols[2];
+        if feature != "exon" && feature != "CDS" {
+            continue;
+        }
+        let trans_id = gtf_attr(cols[8], "transcript_id").unwrap_or("");
+        if trans_id == "unknown_transcript_1" {
+            continue;
+        }
+        let (start, end): (i64, i64) = (cols[3].parse()?, cols[4].parse()?);
+        let tx = trans.entry(trans_id.to_string()).or_insert_with(|| {
+            order.push(trans_id.to_string());
+            EnsTx {
+                chrom: cols[0].to_string(),
+                strand: cols[6].chars().next().unwrap_or('+'),
+                gene_id: gtf_attr(cols[8], "gene_id").unwrap_or("").to_string(),
+                ..Default::default()
+            }
+        });
+        if feature == "exon" {
+            tx.e_starts.push(start - 1);
+            tx.e_ends.push(end);
+        } else {
+            tx.c_starts.push(start);
+            tx.c_ends.push(end);
+        }
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for trans_id in &order {
+        let tx = &trans[trans_id];
+        let mut e_starts = tx.e_starts.clone();
+        let mut e_ends = tx.e_ends.clone();
+        e_starts.sort_unstable();
+        e_ends.sort_unstable();
+        let t_start = e_starts[0];
+        let t_end = *e_ends.last().unwrap();
+        let (mut blocks, mut rel_starts) = (String::new(), String::new());
+        for k in 0..e_starts.len() {
+            if k > 0 {
+                blocks.push(',');
+                rel_starts.push(',');
+            }
+            blocks.push_str(&(e_ends[k] - e_starts[k]).to_string());
+            rel_starts.push_str(&(e_starts[k] - t_start).to_string());
+        }
+        let (cds_start, cds_end) = if tx.c_starts.is_empty() {
+            (t_start, t_start)
+        } else {
+            let mut cs = tx.c_starts.clone();
+            let mut ce = tx.c_ends.clone();
+            cs.sort_unstable();
+            ce.sort_unstable();
+            (cs[0] - 1, *ce.last().unwrap())
+        };
+        writeln!(
+            out,
+            "{}\t{t_start}\t{t_end}\t{};{}\t40\t{}\t{cds_start}\t{cds_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
+            tx.chrom, tx.gene_id, trans_id, tx.strand, e_starts.len()
+        )?;
+    }
+    Ok(())
+}
+
+fn read_all_lines(path: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    use std::io::BufRead;
+    let reader = tama_io::open_reader(path)?;
+    let mut out = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if !line.starts_with('#') {
+            out.push(line);
+        }
+    }
+    Ok(out)
 }
 
 /// Convert a StringTie/Cufflinks GTF to TAMA BED12. Ports
@@ -279,7 +483,8 @@ fn gff2bed_cupcake(gff: &std::path::Path, output: &std::path::Path) -> anyhow::R
     let mut gene_order: Vec<String> = Vec::new();
     let mut gene_trans: IndexMap<String, Vec<String>> = IndexMap::new();
     // (gene, trans) -> (chrom, strand, exons in order)
-    let mut trans: IndexMap<(String, String), (String, char, Vec<(i64, i64)>)> = IndexMap::new();
+    type CupTx = (String, char, Vec<(i64, i64)>);
+    let mut trans: IndexMap<(String, String), CupTx> = IndexMap::new();
 
     let reader = tama_io::open_reader(gff)?;
     for line in reader.lines() {
