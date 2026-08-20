@@ -34,6 +34,22 @@ fn orf_add_cds_matches_golden() {
 }
 
 #[test]
+fn filter_primary_orf_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p6_po_{}.bed", std::process::id()));
+    assert!(tama()
+        .args(["filter", "primary-orf", "-b"])
+        .arg(r.join("test_data/p6/orf_nmd.bed"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/primary_orf.bed")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn orf_seek_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p6_orf_{}.fa", std::process::id()));

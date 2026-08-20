@@ -1,0 +1,2 @@
+chr1	100	500	G1;G1.1;P1;full_length;full_match;prot_ok;F1	40	+	150	480	0,0,255	2	100,100	0,300
+chr2	1000	1500	G2;G2.1;P4;full_length;50_match;prot_ok;F3	40	-	1050	1480	0,0,255	1	500	0

@@ -15,7 +15,14 @@ pub struct Args {
 #[derive(Subcommand)]
 enum Cmd {
     /// Keep primary transcripts by ORF. (tama_filter_primary_transcripts_orf)
-    PrimaryOrf,
+    PrimaryOrf {
+        /// ORF/NMD BED file. (`-b`)
+        #[arg(short = 'b', long)]
+        bed: std::path::PathBuf,
+        /// Output BED file. (`-o`)
+        #[arg(short = 'o', long)]
+        output: std::path::PathBuf,
+    },
     /// Remove fragment models. (tama_remove_fragment_models)
     Fragments {
         /// BED file. (`-f`)
@@ -92,7 +99,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         Cmd::SingleRead {
             bed, read, output, level, multi, source_support, read_support,
         } => single_read(&bed, &read, &output, &level, &multi, source_support, read_support),
-        Cmd::PrimaryOrf => Err(super::not_implemented("filter primary-orf")),
+        Cmd::PrimaryOrf { bed, output } => primary_orf(&bed, &output),
         Cmd::Fragments { bed, output, wobble, ends_wobble, overlap_percent } => {
             fragments(&bed, &output, wobble, ends_wobble, overlap_percent)
         }
@@ -253,6 +260,59 @@ fn single_read(
         } else {
             bail!("invalid -l level {level:?}");
         }
+    }
+    Ok(())
+}
+
+/// Keep the best-ORF transcript per gene. Ports `tama_filter_primary_transcripts_orf`.
+fn primary_orf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    fn match_quality_score(q: &str) -> i64 {
+        match q {
+            "full_match" => 900000,
+            "90_match" => 800000,
+            "50_match" => 700000,
+            "bad_match" => 600000,
+            _ => 0,
+        }
+    }
+    // per gene (in first-seen order): trans_id -> (bed_line, score, length)
+    let mut gene_order: Vec<String> = Vec::new();
+    let mut genes: IndexMap<String, IndexMap<String, (String, i64, i64)>> = IndexMap::new();
+    for line in read_lines(bed)? {
+        let cols: Vec<&str> = line.split('\t').collect();
+        let id_split: Vec<&str> = cols[3].split(';').collect();
+        let (gene_id, trans_id) = (id_split[0].to_string(), id_split[1].to_string());
+        let trans_length: i64 = cols[2].parse::<i64>()? - cols[1].parse::<i64>()?;
+        let mut score = 0i64;
+        if id_split.get(3) == Some(&"full_length") {
+            score += 1_000_000;
+        }
+        if let Some(q) = id_split.get(4) {
+            score += match_quality_score(q);
+        }
+        if id_split.get(5) == Some(&"prot_ok") {
+            score += 10_000;
+        }
+        if !genes.contains_key(&gene_id) {
+            gene_order.push(gene_id.clone());
+        }
+        genes.entry(gene_id).or_default().insert(trans_id, (line.clone(), score, trans_length));
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for gene_id in &gene_order {
+        let trans = &genes[gene_id];
+        let high_score = trans.values().map(|t| t.1).max().unwrap();
+        let longest = trans.values().filter(|t| t.1 == high_score).map(|t| t.2).max().unwrap();
+        // among highest-score, longest, pick the alphabetically-first trans id
+        let mut best_ids: Vec<&String> = trans
+            .iter()
+            .filter(|(_, t)| t.1 == high_score && t.2 == longest)
+            .map(|(id, _)| id)
+            .collect();
+        best_ids.sort();
+        let best = best_ids[0];
+        writeln!(out, "{}", trans[best].0)?;
     }
     Ok(())
 }
