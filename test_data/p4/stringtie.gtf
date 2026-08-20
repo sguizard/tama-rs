@@ -1,0 +1,7 @@
+# comment line
+chr1	StringTie	transcript	100	500	.	+	.	gene_id "STRG.1"; transcript_id "STRG.1.1";
+chr1	StringTie	exon	100	200	.	+	.	gene_id "STRG.1"; transcript_id "STRG.1.1"; exon_number "1";
+chr1	StringTie	exon	300	500	.	+	.	gene_id "STRG.1"; transcript_id "STRG.1.1"; exon_number "2";
+chr1	StringTie	transcript	1000	1500	.	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1";
+chr1	StringTie	exon	1000	1100	.	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1"; exon_number "1";
+chr1	StringTie	exon	1400	1500	.	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1"; exon_number "2";

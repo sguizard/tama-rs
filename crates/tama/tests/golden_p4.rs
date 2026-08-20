@@ -35,6 +35,21 @@ fn bed2gtf_matches_golden() {
 }
 
 #[test]
+fn gtf2bed_stringtie_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p4_st_{}.bed", std::process::id()));
+    let status = tama()
+        .args(["format", "gtf2bed", "--source", "stringtie"])
+        .arg(r.join("test_data/p4/stringtie.gtf"))
+        .arg(&out)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/gtf2bed_stringtie.bed")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn fastq2fasta_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p4_fq_{}.fa", std::process::id()));

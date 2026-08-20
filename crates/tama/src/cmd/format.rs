@@ -47,6 +47,10 @@ enum Cmd {
     Gtf2bed {
         #[arg(long)]
         source: GtfSource,
+        /// Input GTF file.
+        gtf: std::path::PathBuf,
+        /// Output BED file.
+        output: std::path::PathBuf,
     },
     /// Convert a GFF to TAMA BED12. (tama_format_gff_to_bed12_*)
     Gff2bed {
@@ -89,7 +93,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             delim,
         } => id_filter(&bed, &output, &filter, &method, &reshuffle, &delim),
         Cmd::Bed2gtfOrf => Err(super::not_implemented("format bed2gtf-orf")),
-        Cmd::Gtf2bed { .. } => Err(super::not_implemented("format gtf2bed")),
+        Cmd::Gtf2bed { source, gtf, output } => match source {
+            GtfSource::Stringtie => gtf2bed_stringtie(&gtf, &output),
+            GtfSource::Ensembl => Err(super::not_implemented("format gtf2bed --source ensembl")),
+            GtfSource::Ncbi => Err(super::not_implemented("format gtf2bed --source ncbi")),
+        },
         Cmd::Gff2bed { .. } => Err(super::not_implemented("format gff2bed")),
     }
 }
@@ -146,6 +154,99 @@ fn bed2gtf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()
                     t.exon_end_list[k]
                 )?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Convert a StringTie/Cufflinks GTF to TAMA BED12. Ports
+/// `tama_format_gtf_to_bed12_stringtie`. Exons are read from lines carrying an
+/// `exon_number` attribute and ordered by that number (which must be
+/// genomic-ascending, as the original asserts).
+fn gtf2bed_stringtie(gtf: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::BufRead;
+
+    #[derive(Default)]
+    struct Tx {
+        chrom: String,
+        strand: char,
+        exons: std::collections::BTreeMap<i64, (i64, i64)>, // exon_number -> (start, end)
+    }
+
+    let mut gene_order: Vec<String> = Vec::new();
+    let mut gene_trans: IndexMap<String, Vec<String>> = IndexMap::new();
+    let mut trans: IndexMap<(String, String), Tx> = IndexMap::new();
+
+    let reader = tama_io::open_reader(gtf)?;
+    let mut cur_gene = String::new();
+    let mut cur_trans = String::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let chrom = cols[0];
+        let e_start: i64 = cols[3].parse()?;
+        let e_end: i64 = cols[4].parse()?;
+        let strand = cols[6].chars().next().unwrap_or('+');
+        for field in cols[8].split(';') {
+            let field = field.trim();
+            if field.is_empty() || !field.contains('"') {
+                continue;
+            }
+            let id_code = field.split('"').nth(1).unwrap_or("");
+            if field.contains("gene_id") {
+                cur_gene = id_code.to_string();
+                if !gene_trans.contains_key(&cur_gene) {
+                    gene_order.push(cur_gene.clone());
+                    gene_trans.insert(cur_gene.clone(), Vec::new());
+                }
+            } else if field.contains("transcript_id") {
+                cur_trans = id_code.to_string();
+                let key = (cur_gene.clone(), cur_trans.clone());
+                if !trans.contains_key(&key) {
+                    gene_trans.get_mut(&cur_gene).unwrap().push(cur_trans.clone());
+                    trans.insert(
+                        key,
+                        Tx { chrom: chrom.to_string(), strand, ..Default::default() },
+                    );
+                }
+            } else if field.contains("exon_number") {
+                let e_num: i64 = id_code.parse()?;
+                let tx = trans.get_mut(&(cur_gene.clone(), cur_trans.clone())).unwrap();
+                if tx.exons.insert(e_num, (e_start, e_end)).is_some() {
+                    anyhow::bail!("duplicate exon number {e_num}");
+                }
+            }
+        }
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for gene in &gene_order {
+        for trans_id in &gene_trans[gene] {
+            let tx = &trans[&(gene.clone(), trans_id.clone())];
+            let starts: Vec<i64> = tx.exons.values().map(|e| e.0).collect();
+            let ends: Vec<i64> = tx.exons.values().map(|e| e.1).collect();
+            let t_start = starts[0] - 1;
+            let t_end = *ends.last().unwrap();
+            let (mut blocks, mut rel_starts) = (String::new(), String::new());
+            for k in 0..starts.len() {
+                if k > 0 {
+                    blocks.push(',');
+                    rel_starts.push(',');
+                }
+                blocks.push_str(&(ends[k] + 1 - starts[k]).to_string());
+                rel_starts.push_str(&(starts[k] - t_start - 1).to_string());
+            }
+            writeln!(
+                out,
+                "{}\t{t_start}\t{t_end}\t{gene};{trans_id}\t40\t{}\t{t_start}\t{t_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
+                tx.chrom, tx.strand, starts.len()
+            )?;
         }
     }
     Ok(())
