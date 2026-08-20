@@ -14,6 +14,21 @@ fn read(p: PathBuf) -> String {
 }
 
 #[test]
+fn format_bed2gtf_orf_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p6_b2go_{}.gtf", std::process::id()));
+    assert!(tama()
+        .args(["format", "bed2gtf-orf"])
+        .arg(r.join("test_data/p6/orf_nmd.bed"))
+        .arg(&out)
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/bed2gtf_orf.gtf")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn orf_add_cds_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p6_add_{}.bed", std::process::id()));

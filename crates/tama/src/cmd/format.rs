@@ -35,7 +35,12 @@ enum Cmd {
         output: std::path::PathBuf,
     },
     /// Convert TAMA BED to GTF with ORF/NMD CDS. (tama_convert_bed_gtf_ensembl_orf_nmd)
-    Bed2gtfOrf,
+    Bed2gtfOrf {
+        /// Input ORF/NMD BED file.
+        bed: std::path::PathBuf,
+        /// Output GTF file.
+        output: std::path::PathBuf,
+    },
     /// Convert Nanopore FASTQ to FASTA. (tama_convert_nanopore_fastq_fasta)
     Fastq2fasta {
         /// Input FASTQ file.
@@ -96,7 +101,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             reshuffle,
             delim,
         } => id_filter(&bed, &output, &filter, &method, &reshuffle, &delim),
-        Cmd::Bed2gtfOrf => Err(super::not_implemented("format bed2gtf-orf")),
+        Cmd::Bed2gtfOrf { bed, output } => bed2gtf_orf(&bed, &output),
         Cmd::Gtf2bed { source, gtf, output } => match source {
             GtfSource::Stringtie => gtf2bed_stringtie(&gtf, &output),
             GtfSource::Ensembl => gtf2bed_ensembl(&gtf, &output),
@@ -161,6 +166,247 @@ fn bed2gtf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()
                     t.exon_end_list[k]
                 )?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// A transcript for ORF-GTF conversion.
+struct OrfTx {
+    chrom: String,
+    t_start: i64, // 1-based
+    t_end: i64,
+    gene_id: String,
+    trans_id: String,
+    strand: char,
+    num_exons: usize,
+    starts: Vec<i64>, // 1-based exon starts
+    ends: Vec<i64>,
+    cds_start: i64, // 1-based
+    cds_end: i64,
+    prot_id: String,
+    degrade: String,
+    match_flag: String,
+    nmd: String,
+}
+
+/// Convert an ORF/NMD BED to GTF with CDS/UTR/codon features. Ports
+/// `tama_convert_bed_gtf_ensembl_orf_nmd`.
+fn bed2gtf_orf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::BufRead;
+    const SOURCE: &str = "PBRI";
+
+    let anno = |pairs: &[(&str, &str)]| -> String {
+        let mut parts: Vec<String> = pairs.iter().map(|(k, v)| format!("{k} \"{v}\"")).collect();
+        parts.push(String::new());
+        parts.join("; ")
+    };
+
+    let mut gene_order: Vec<String> = Vec::new();
+    let mut gene_trans: IndexMap<String, Vec<String>> = IndexMap::new();
+    let mut trans: IndexMap<String, OrfTx> = IndexMap::new();
+
+    let reader = tama_io::open_reader(bed)?;
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let c: Vec<&str> = line.split('\t').collect();
+        let id_split: Vec<&str> = c[3].split(';').collect();
+        let (gene_id, trans_id) = (id_split[0].to_string(), id_split[1].to_string());
+        let t0: i64 = c[1].parse()?;
+        let sizes: Vec<i64> = c[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let rels: Vec<i64> = c[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let starts: Vec<i64> = rels.iter().map(|r| t0 + r + 1).collect();
+        // calc_end: start + block_size - 1 (bed 0-based to gtf 1-based)
+        let ends: Vec<i64> = starts.iter().zip(&sizes).map(|(s, z)| s + z - 1).collect();
+        let tx = OrfTx {
+            chrom: c[0].to_string(),
+            t_start: t0 + 1,
+            t_end: c[2].parse()?,
+            gene_id: gene_id.clone(),
+            trans_id: trans_id.clone(),
+            strand: c[5].chars().next().unwrap_or('+'),
+            num_exons: c[9].parse()?,
+            starts,
+            ends,
+            cds_start: c[6].parse::<i64>()? + 1,
+            cds_end: c[7].parse()?,
+            prot_id: id_split.get(2).unwrap_or(&"").to_string(),
+            degrade: id_split.get(3).unwrap_or(&"").to_string(),
+            match_flag: id_split.get(4).unwrap_or(&"").to_string(),
+            nmd: id_split.get(5).unwrap_or(&"").to_string(),
+        };
+        if !gene_trans.contains_key(&gene_id) {
+            gene_order.push(gene_id.clone());
+        }
+        gene_trans.entry(gene_id).or_default().push(trans_id.clone());
+        trans.insert(trans_id, tx);
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for gene_id in &gene_order {
+        let tids = &gene_trans[gene_id];
+        let first = &trans[&tids[0]];
+        let chrom = first.chrom.clone();
+        let strand = first.strand;
+        let min_start = tids.iter().map(|t| trans[t].t_start).min().unwrap();
+        let max_end = tids.iter().map(|t| trans[t].t_end).max().unwrap();
+        writeln!(
+            out,
+            "{chrom}\t{SOURCE}\tgene\t{min_start}\t{max_end}\t.\t{strand}\t.\t{}",
+            anno(&[("gene_id", gene_id), ("gene_source", "tama")])
+        )?;
+
+        for tid in tids {
+            let tx = &trans[tid];
+            write_orf_trans(&mut out, tx, SOURCE, &anno)?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::type_complexity)]
+fn write_orf_trans(
+    out: &mut Box<dyn Write>,
+    tx: &OrfTx,
+    source: &str,
+    anno: &dyn Fn(&[(&str, &str)]) -> String,
+) -> anyhow::Result<()> {
+    let g = &tx.gene_id;
+    let t = &tx.trans_id;
+    writeln!(
+        out,
+        "{}\t{source}\ttranscript\t{}\t{}\t.\t{}\t.\t{}",
+        tx.chrom, tx.t_start, tx.t_end, tx.strand,
+        anno(&[("gene_id", g), ("transcript_id", t), ("gene_source", "tama"), ("transcript_source", "tama")])
+    )?;
+
+    let mut five_utr: Vec<(i64, i64, usize)> = Vec::new();
+    let mut three_utr: Vec<(i64, i64, usize)> = Vec::new();
+
+    let feature = |out: &mut Box<dyn Write>, region: &str, s: i64, e: i64, e_num: usize| -> anyhow::Result<()> {
+        writeln!(
+            out,
+            "{}\t{source}\t{region}\t{s}\t{e}\t.\t{}\t.\t{}",
+            tx.chrom, tx.strand,
+            anno(&[
+                ("gene_id", g), ("transcript_id", t), ("exon_number", &e_num.to_string()),
+                ("gene_source", "tama"), ("transcript_source", "tama"),
+                ("prot_id", &tx.prot_id), ("degrade_flag", &tx.degrade),
+                ("match_flag", &tx.match_flag), ("nmd_flag", &tx.nmd),
+            ])
+        )?;
+        Ok(())
+    };
+
+    let no_cds = tx.cds_start == 1 && tx.cds_end == 0;
+    for i in 0..tx.num_exons {
+        let e_num = i + 1;
+        let e_index = if tx.strand == '+' { i } else { tx.num_exons - i - 1 };
+        let e_start = tx.starts[e_index];
+        let e_end = tx.ends[e_index];
+        feature(out, "exon", e_start, e_end, e_num)?;
+        if no_cds {
+            continue;
+        }
+
+        if tx.strand == '+' {
+            if e_start > tx.cds_end {
+                three_utr.push((e_start, e_end, e_num));
+                continue;
+            }
+            if tx.cds_start > e_end {
+                five_utr.push((e_start, e_end, e_num));
+                continue;
+            }
+            if e_start > tx.cds_start && e_end < tx.cds_end {
+                feature(out, "CDS", e_start, e_end, e_num)?;
+                continue;
+            }
+            let (mut cds_e_start, mut cds_e_end) = (e_start, e_end);
+            let (mut start_flag, mut stop_flag) = (false, false);
+            let (mut sc_s, mut sc_e, mut stc_s, mut stc_e) = (0, 0, 0, 0);
+            if e_start < tx.cds_end && e_end >= tx.cds_end {
+                stc_s = tx.cds_end - 2;
+                stc_e = tx.cds_end;
+                cds_e_end = stc_s - 1;
+                three_utr.push((stc_e + 1, e_end, e_num));
+                stop_flag = true;
+            }
+            if tx.cds_start > e_start && tx.cds_start <= e_end {
+                sc_s = tx.cds_start;
+                sc_e = tx.cds_start + 2;
+                cds_e_start = sc_s;
+                five_utr.push((e_start, tx.cds_start - 1, e_num));
+                start_flag = true;
+            }
+            if tx.cds_start == tx.t_start {
+                start_flag = false;
+            }
+            if cds_e_end >= cds_e_start {
+                feature(out, "CDS", cds_e_start, cds_e_end, e_num)?;
+            }
+            if start_flag {
+                feature(out, "start_codon", sc_s, sc_e, e_num)?;
+            }
+            if stop_flag {
+                feature(out, "stop_codon", stc_s, stc_e, e_num)?;
+            }
+        } else {
+            if e_start > tx.cds_end {
+                five_utr.push((e_start, e_end, e_num));
+                continue;
+            }
+            if tx.cds_start > e_end {
+                three_utr.push((e_start, e_end, e_num));
+                continue;
+            }
+            if e_start > tx.cds_start && e_end < tx.cds_end {
+                feature(out, "CDS", e_start, e_end, e_num)?;
+                continue;
+            }
+            let (mut cds_e_start, mut cds_e_end) = (e_start, e_end);
+            let (mut start_flag, mut stop_flag) = (false, false);
+            let (mut sc_s, mut sc_e, mut stc_s, mut stc_e) = (0, 0, 0, 0);
+            if e_start < tx.cds_end && e_end >= tx.cds_end {
+                cds_e_end = tx.cds_end;
+                sc_s = tx.cds_end - 2;
+                sc_e = tx.cds_end;
+                five_utr.push((sc_e + 1, e_end, e_num));
+                start_flag = true;
+            }
+            if tx.cds_start > e_start && tx.cds_start <= e_end {
+                stc_s = tx.cds_start;
+                stc_e = tx.cds_start + 2;
+                cds_e_start = stc_e + 1;
+                three_utr.push((e_start, stc_s, e_num));
+                stop_flag = true;
+            }
+            if tx.cds_end == tx.t_end {
+                start_flag = false;
+            }
+            if cds_e_end >= cds_e_start {
+                feature(out, "CDS", cds_e_start, cds_e_end, e_num)?;
+            }
+            if start_flag {
+                feature(out, "start_codon", sc_s, sc_e, e_num)?;
+            }
+            if stop_flag {
+                feature(out, "stop_codon", stc_s, stc_e, e_num)?;
+            }
+        }
+    }
+
+    for &(s, e, en) in &five_utr {
+        if e >= s {
+            feature(out, "five_prime_utr", s, e, en)?;
+        }
+    }
+    for &(s, e, en) in &three_utr {
+        if e >= s {
+            feature(out, "three_prime_utr", s, e, en)?;
         }
     }
     Ok(())
