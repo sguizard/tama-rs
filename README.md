@@ -166,6 +166,32 @@ The golden reference outputs live under `tests/golden*`. To regenerate them from
 the original Python 2 tools you need a Python 2.7 + BioPython environment; see
 `tests/golden/regenerate.sh` (it builds one with conda/mamba).
 
+## Citation
+
+This project is an independent reimplementation. **If you use it in your
+research, you must cite the original TAMA paper:**
+
+> Kuo, R.I., Cheng, Y., Zhang, R., Brown, J.W.S., Smith, J., Archibald, A.L. &
+> Burt, D.W. Illuminating the dark side of the human transcriptome with long read
+> transcript sequencing. *BMC Genomics* **21**, 751 (2020).
+> https://doi.org/10.1186/s12864-020-07123-7
+
+```bibtex
+@article{kuo2020tama,
+  title   = {Illuminating the dark side of the human transcriptome with long read transcript sequencing},
+  author  = {Kuo, Richard I. and Cheng, Yuanyuan and Zhang, Runxuan and Brown, John W. S. and Smith, Jacqueline and Archibald, Alan L. and Burt, David W.},
+  journal = {BMC Genomics},
+  volume  = {21},
+  number  = {1},
+  pages   = {751},
+  year    = {2020},
+  doi     = {10.1186/s12864-020-07123-7}
+}
+```
+
+Optionally, you may also reference this Rust reimplementation by its repository
+URL. See [`CITATION.cff`](CITATION.cff) for machine-readable citation metadata.
+
 ## License
 
 GPL-3.0-or-later, matching upstream TAMA.

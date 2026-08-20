@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: >-
+  TAMA (Rust) is an independent reimplementation of TAMA. It does not replace the
+  original method. If you use this software in your research, you MUST cite the
+  original TAMA paper (see `preferred-citation` below).
+title: TAMA (Rust)
+abstract: >-
+  A Rust rewrite of TAMA (Transcriptome Annotation by Modular Algorithms), a
+  toolkit for processing long-read (Iso-Seq / Nanopore) transcriptome data.
+type: software
+authors:
+  - family-names: Guizard
+    given-names: Sébastien
+repository-code: https://github.com/sguizard/tama-rs
+license: GPL-3.0-or-later
+preferred-citation:
+  type: article
+  title: >-
+    Illuminating the dark side of the human transcriptome with long read
+    transcript sequencing
+  authors:
+    - family-names: Kuo
+      given-names: Richard I.
+    - family-names: Cheng
+      given-names: Yuanyuan
+    - family-names: Zhang
+      given-names: Runxuan
+    - family-names: Brown
+      given-names: John W. S.
+    - family-names: Smith
+      given-names: Jacqueline
+    - family-names: Archibald
+      given-names: Alan L.
+    - family-names: Burt
+      given-names: David W.
+  journal: BMC Genomics
+  year: 2020
+  volume: 21
+  issue: 1
+  start: 751
+  doi: 10.1186/s12864-020-07123-7
