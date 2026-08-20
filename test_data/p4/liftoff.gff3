@@ -1,0 +1,11 @@
+##gff-version 3
+Chr1	Liftoff	gene	6983	9251	.	+	.	ID=AT1G01010;Name=AT1G01010
+Chr1	Liftoff	mRNA	6983	9251	.	+	.	ID=AT1G01010.1;Parent=AT1G01010;Name=AT1G01010.1
+Chr1	Liftoff	exon	6983	7265	.	+	.	ID=exon_1;Parent=AT1G01010.1
+Chr1	Liftoff	exon	7348	7628	.	+	.	ID=exon_2;Parent=AT1G01010.1
+Chr1	Liftoff	CDS	7112	7265	.	+	.	ID=CDS_1;Parent=AT1G01010.1,AT1G01010.1-Protein
+Chr1	Liftoff	CDS	7348	7628	.	+	.	ID=CDS_2;Parent=AT1G01010.1,AT1G01010.1-Protein
+Chr1	Liftoff	gene	20000	21000	.	-	.	ID=AT1G02000;Name=AT1G02000
+Chr1	Liftoff	ncRNA	20000	21000	.	-	.	ID=AT1G02000.1;Parent=AT1G02000;Name=ncgene
+Chr1	Liftoff	exon	20000	20300	.	-	.	ID=exon_a;Parent=AT1G02000.1
+Chr1	Liftoff	exon	20700	21000	.	-	.	ID=exon_b;Parent=AT1G02000.1

@@ -117,7 +117,7 @@ fn merge_collapse(
         let support_id = id_split[1];
         let gene_id = trans_id.split('.').next().unwrap_or(&trans_id).to_string();
         let prefix = support_id.split('_').next().unwrap_or("").to_string();
-        let collapse_id = support_id.splitn(2, '_').nth(1).unwrap_or("").to_string();
+        let collapse_id = support_id.split_once('_').map(|x| x.1).unwrap_or("").to_string();
 
         if !merge_gene_trans.contains_key(&gene_id) {
             merge_gene_list.push(gene_id.clone());

@@ -89,6 +89,21 @@ fn gff2bed_cupcake_matches_golden() {
 }
 
 #[test]
+fn gff2bed_liftoff_matches_golden() {
+    let r = root();
+    let out = std::env::temp_dir().join(format!("p4_lo_{}.bed", std::process::id()));
+    let status = tama()
+        .args(["format", "gff2bed", "--source", "liftoff"])
+        .arg(r.join("test_data/p4/liftoff.gff3"))
+        .arg(&out)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/gff2bed_liftoff.bed")));
+    let _ = std::fs::remove_file(out);
+}
+
+#[test]
 fn fastq2fasta_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p4_fq_{}.fa", std::process::id()));

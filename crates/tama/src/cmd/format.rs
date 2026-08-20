@@ -104,7 +104,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         },
         Cmd::Gff2bed { source, gff, output } => match source {
             GffSource::Cupcake => gff2bed_cupcake(&gff, &output),
-            GffSource::Liftoff => Err(super::not_implemented("format gff2bed --source liftoff")),
+            GffSource::Liftoff => gff2bed_liftoff(&gff, &output),
         },
     }
 }
@@ -470,6 +470,128 @@ fn write_gtf_bed(records: &[GtfBedRecord], output: &std::path::Path) -> anyhow::
             out,
             "{chrom}\t{t_start}\t{t_end}\t{gene};{trans_id}\t40\t{strand}\t{t_start}\t{t_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
             exons.len()
+        )?;
+    }
+    Ok(())
+}
+
+/// GFF3 attribute lookup (`key=value;` fields).
+fn gff_attr<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
+    for field in attrs.split(';') {
+        if let Some((k, v)) = field.split_once('=') {
+            if k == key {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+/// Convert a Liftoff GFF3 to TAMA BED12. Ports `tama_format_gff_to_bed12_liftoff`.
+/// id = `gene;trans;name;feature_type`; CDS thick = `min(cds)-1 .. max(cds)` (or
+/// 0..0 if non-coding).
+fn gff2bed_liftoff(gff: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    const TRANS_TYPES: &[&str] = &[
+        "transcript", "mRNA", "ncRNA", "tRNA", "rRNA", "snRNA", "miRNA", "primary_transcript",
+        "snoRNA", "V_gene_segment", "guide_RNA", "C_gene_segment", "telomerase_RNA", "SRP_RNA",
+        "lnc_RNA",
+    ];
+
+    #[derive(Default)]
+    struct Tx {
+        chrom: String,
+        strand: char,
+        t_start: i64,
+        t_end: i64,
+        gene_id: String,
+        trans_name: String,
+        trans_type: String,
+        e_starts: Vec<i64>,
+        e_ends: Vec<i64>,
+        c_starts: Vec<i64>,
+        c_ends: Vec<i64>,
+    }
+
+    let lines = read_all_lines(gff)?;
+    let mut order: Vec<String> = Vec::new();
+    let mut trans: IndexMap<String, Tx> = IndexMap::new();
+
+    // pass 1: transcript-like features
+    for line in &lines {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 || !TRANS_TYPES.contains(&cols[2]) {
+            continue;
+        }
+        let trans_id = gff_attr(cols[8], "ID").unwrap_or("").to_string();
+        let tx = Tx {
+            chrom: cols[0].to_string(),
+            strand: cols[6].chars().next().unwrap_or('+'),
+            t_start: cols[3].parse::<i64>()? - 1,
+            t_end: cols[4].parse()?,
+            gene_id: gff_attr(cols[8], "Parent").unwrap_or("").to_string(),
+            trans_name: gff_attr(cols[8], "Name").unwrap_or("NA").to_string(),
+            trans_type: cols[2].to_string(),
+            ..Default::default()
+        };
+        if !trans.contains_key(&trans_id) {
+            order.push(trans_id.clone());
+        }
+        trans.insert(trans_id, tx);
+    }
+
+    // pass 2: exon / CDS features
+    for line in &lines {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let feature = cols[2];
+        if feature != "exon" && feature != "CDS" {
+            continue;
+        }
+        let parent = gff_attr(cols[8], "Parent").unwrap_or("");
+        let trans_id = parent.split(',').next().unwrap_or(parent);
+        let Some(tx) = trans.get_mut(trans_id) else { continue };
+        let (start, end): (i64, i64) = (cols[3].parse()?, cols[4].parse()?);
+        if feature == "exon" {
+            tx.e_starts.push(start - 1);
+            tx.e_ends.push(end);
+        } else {
+            tx.c_starts.push(start - 1);
+            tx.c_ends.push(end);
+        }
+    }
+
+    let mut out = tama_io::create_writer(output)?;
+    for trans_id in &order {
+        let tx = &trans[trans_id];
+        let mut e_starts = tx.e_starts.clone();
+        let mut e_ends = tx.e_ends.clone();
+        e_starts.sort_unstable();
+        e_ends.sort_unstable();
+        let (mut blocks, mut rel_starts) = (String::new(), String::new());
+        for k in 0..e_starts.len() {
+            if k > 0 {
+                blocks.push(',');
+                rel_starts.push(',');
+            }
+            blocks.push_str(&(e_ends[k] - e_starts[k]).to_string());
+            rel_starts.push_str(&(e_starts[k] - tx.t_start).to_string());
+        }
+        let (cds_start, cds_end) = if tx.c_starts.is_empty() {
+            (0, 0)
+        } else {
+            let mut cs = tx.c_starts.clone();
+            let mut ce = tx.c_ends.clone();
+            cs.sort_unstable();
+            ce.sort_unstable();
+            (cs[0], *ce.last().unwrap())
+        };
+        writeln!(
+            out,
+            "{}\t{}\t{}\t{};{};{};{}\t40\t{}\t{cds_start}\t{cds_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
+            tx.chrom, tx.t_start, tx.t_end, tx.gene_id, trans_id, tx.trans_name, tx.trans_type,
+            tx.strand, e_starts.len()
         )?;
     }
     Ok(())
