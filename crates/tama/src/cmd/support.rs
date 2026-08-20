@@ -23,8 +23,21 @@ enum Cmd {
         /// Output file.
         output: std::path::PathBuf,
     },
-    /// Read support levels. (tama_read_support_levels)
-    Levels,
+    /// Read support levels file. (tama_read_support_levels)
+    Levels {
+        /// Filelist: `source_name<TAB>transread_file<TAB>file_type`. (`-f`)
+        #[arg(short = 'f', long)]
+        filelist: std::path::PathBuf,
+        /// Merge `_merge.txt`, or `no_merge`. (`-m`)
+        #[arg(short = 'm', long)]
+        merge: String,
+        /// Output prefix (writes `<prefix>_read_support.txt`). (`-o`)
+        #[arg(short = 'o', long)]
+        output: String,
+        /// Merge type: `tama`, `cupcake`, or `filter`. (`-mt`)
+        #[arg(long = "mt", default_value = "tama")]
+        merge_type: String,
+    },
     /// Read support after merging collapse outputs. (tama_read_support_merge_collapse)
     MergeCollapse {
         /// tama merge `<prefix>_merge.txt`.
@@ -41,7 +54,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         Cmd::CollapseCluster { collapse, cluster, output } => {
             collapse_cluster(&collapse, &cluster, &output)
         }
-        Cmd::Levels => Err(super::not_implemented("support levels")),
+        Cmd::Levels { filelist, merge, output, merge_type } => {
+            levels(&filelist, &merge, &output, &merge_type)
+        }
         Cmd::MergeCollapse { merge, filelist, output } => {
             merge_collapse(&merge, &filelist, &output)
         }
@@ -294,6 +309,246 @@ fn collapse_cluster(
                 cluster_parts.join(";")
             )?;
         }
+    }
+    Ok(())
+}
+
+/// Build a read-support levels file. Ports `tama_read_support_levels` (trans_read/
+/// ref_anno/read_support/cluster inputs; tama/cupcake/filter merge; or no_merge).
+fn levels(
+    filelist: &std::path::Path,
+    merge: &str,
+    output_prefix: &str,
+    merge_type: &str,
+) -> anyhow::Result<()> {
+    // source -> trans_id -> set(read)
+    let mut src_trans_read: IndexMap<String, IndexMap<String, IndexSet<String>>> = IndexMap::new();
+    let mut source_list: Vec<String> = Vec::new();
+    let mut source_trans_list: Vec<String> = Vec::new();
+
+    for line in read_lines(filelist)? {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split('\t').collect();
+        let (source_name, transread_file, file_type) = (f[0].to_string(), f[1], f[2]);
+        src_trans_read.insert(source_name.clone(), IndexMap::new());
+        source_list.push(source_name.clone());
+        let map = src_trans_read.get_mut(&source_name).unwrap();
+
+        for tl in read_lines(std::path::Path::new(transread_file))? {
+            match file_type {
+                "trans_read" | "ref_anno" => {
+                    let cols: Vec<&str> = tl.split('\t').collect();
+                    let id_split: Vec<&str> = cols[3].split(';').collect();
+                    let trans_id = id_split[0].to_string();
+                    let read_id = id_split[1].to_string();
+                    if !map.contains_key(&trans_id) {
+                        source_trans_list.push(trans_id.clone());
+                    }
+                    map.entry(trans_id).or_default().insert(read_id);
+                }
+                "read_support" => {
+                    if tl.starts_with("merge_gene_id") {
+                        continue;
+                    }
+                    let cols: Vec<&str> = tl.split('\t').collect();
+                    let trans_id = cols[1].to_string();
+                    if !map.contains_key(&trans_id) {
+                        source_trans_list.push(trans_id.clone());
+                    }
+                    let slot = map.entry(trans_id).or_default();
+                    for src_read in cols[5].split(';') {
+                        let parts: Vec<&str> = src_read.split(':').collect();
+                        // reads are after the first (source) field; supports ':' in read ids
+                        let read_line = parts[1..].join(":");
+                        for r in read_line.split(',') {
+                            slot.insert(r.to_string());
+                        }
+                    }
+                }
+                "cluster" => {
+                    if tl.starts_with("cluster_id") {
+                        continue;
+                    }
+                    let cols: Vec<&str> = tl.split(',').collect();
+                    let trans_id = cols[0].to_string();
+                    let read_id = cols[1].to_string();
+                    if !map.contains_key(&trans_id) {
+                        source_trans_list.push(trans_id.clone());
+                    }
+                    map.entry(trans_id).or_default().insert(read_id);
+                }
+                other => bail!("unknown file type {other:?}"),
+            }
+        }
+    }
+
+    let mut out = tama_io::create_writer(format!("{output_prefix}_read_support.txt"))?;
+    writeln!(out, "merge_gene_id\tmerge_trans_id\tgene_read_count\ttrans_read_count\tsource_line\tsupport_line")?;
+
+    if merge != "no_merge" {
+        // merge_trans -> source -> source_trans -> read_list
+        let mut merge_trans: IndexMap<String, IndexMap<String, IndexMap<String, Vec<String>>>> =
+            IndexMap::new();
+        let mut merge_trans_list: Vec<String> = Vec::new();
+        let mut trans_gene: IndexMap<String, String> = IndexMap::new();
+        let mut gene_read: IndexMap<String, IndexMap<String, IndexSet<String>>> = IndexMap::new();
+        let has_trans_read = merge.contains("trans_read.bed");
+
+        for line in read_lines(std::path::Path::new(merge))? {
+            if merge_type == "filter" && line.starts_with("old_gene_id") {
+                continue;
+            }
+            let cols: Vec<&str> = line.split('\t').collect();
+            let (merge_trans_id, source_name, source_trans_id, merge_gene_id) = match merge_type {
+                "tama" => {
+                    let id_split: Vec<&str> = cols[3].split(';').collect();
+                    let mtid = id_split[0].to_string();
+                    let stid_line = id_split[1];
+                    let (sname, stid) = if has_trans_read {
+                        (source_list[0].clone(), stid_line.to_string())
+                    } else {
+                        let parts: Vec<&str> = stid_line.split('_').collect();
+                        if parts.len() == 2 {
+                            (parts[0].to_string(), parts[1].to_string())
+                        } else {
+                            let stid = parts[parts.len() - 1].to_string();
+                            let sname = parts[..parts.len() - 1].join("_");
+                            (sname, stid)
+                        }
+                    };
+                    let mg = mtid.split('.').next().unwrap_or(&mtid).to_string();
+                    (mtid, sname, stid, mg)
+                }
+                "cupcake" => {
+                    // handled per source_trans below; loop expansion done here
+                    let mtid = cols[0].to_string();
+                    let parts: Vec<&str> = mtid.split('.').collect();
+                    let mg = format!("{}.{}", parts[0], parts.get(1).copied().unwrap_or(""));
+                    // expand comma list
+                    for stid in cols[1].split(',') {
+                        add_merge_entry(&mut merge_trans, &mut merge_trans_list, &mut trans_gene, &mut gene_read, &src_trans_read, &mtid, &source_list[0], stid, &mg)?;
+                    }
+                    continue;
+                }
+                "filter" => {
+                    let mtid = cols[5].to_string();
+                    if mtid == "removed_transcript" {
+                        continue;
+                    }
+                    (mtid, source_list[0].clone(), cols[1].to_string(), cols[4].to_string())
+                }
+                other => bail!("unknown merge type {other:?}"),
+            };
+            add_merge_entry(&mut merge_trans, &mut merge_trans_list, &mut trans_gene, &mut gene_read, &src_trans_read, &merge_trans_id, &source_name, &source_trans_id, &merge_gene_id)?;
+        }
+
+        for mtid in &merge_trans_list {
+            let mut this_reads: IndexSet<String> = IndexSet::new();
+            let mut this_source_read: IndexMap<String, IndexSet<String>> = IndexMap::new();
+            let mut this_source_list: Vec<String> = Vec::new();
+            for source_name in &source_list {
+                if let Some(stmap) = merge_trans[mtid].get(source_name) {
+                    this_source_list.push(source_name.clone());
+                    let slot = this_source_read.entry(source_name.clone()).or_default();
+                    for reads in stmap.values() {
+                        for r in reads {
+                            this_reads.insert(r.clone());
+                            slot.insert(r.clone());
+                        }
+                    }
+                }
+            }
+            let merge_gene_id = &trans_gene[mtid];
+            let mut gene_read_num = 0usize;
+            let mut support_list: Vec<String> = Vec::new();
+            for source_name in &source_list {
+                if let Some(reads) = this_source_read.get(source_name) {
+                    let line: Vec<String> = reads.iter().cloned().collect();
+                    support_list.push(format!("{source_name}:{}", line.join(",")));
+                }
+                if let Some(gr) = gene_read.get(merge_gene_id).and_then(|g| g.get(source_name)) {
+                    gene_read_num += gr.len();
+                }
+            }
+            writeln!(
+                out,
+                "{merge_gene_id}\t{mtid}\t{gene_read_num}\t{}\t{}\t{}",
+                this_reads.len(),
+                this_source_list.join(","),
+                support_list.join(";")
+            )?;
+        }
+    } else {
+        // no_merge: single source
+        let source_name = &source_list[0];
+        let mut gene_read: IndexMap<String, IndexSet<String>> = IndexMap::new();
+        let is_cluster = source_name == "cluster";
+        if !is_cluster {
+            for mtid in &source_trans_list {
+                let mg = mtid.split('.').next().unwrap_or(mtid).to_string();
+                let slot = gene_read.entry(mg).or_default();
+                for r in &src_trans_read[source_name][mtid] {
+                    slot.insert(r.clone());
+                }
+            }
+        }
+        for mtid in &source_trans_list {
+            let reads = &src_trans_read[source_name][mtid];
+            let read_line: Vec<String> = reads.iter().cloned().collect();
+            let (merge_gene_id, gene_read_num) = if is_cluster {
+                ("NA".to_string(), "NA".to_string())
+            } else {
+                let mg = mtid.split('.').next().unwrap_or(mtid).to_string();
+                let n = gene_read[&mg].len();
+                (mg, n.to_string())
+            };
+            writeln!(
+                out,
+                "{merge_gene_id}\t{mtid}\t{gene_read_num}\t{}\t{source_name}\t{source_name}:{}",
+                reads.len(),
+                read_line.join(",")
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_merge_entry(
+    merge_trans: &mut IndexMap<String, IndexMap<String, IndexMap<String, Vec<String>>>>,
+    merge_trans_list: &mut Vec<String>,
+    trans_gene: &mut IndexMap<String, String>,
+    gene_read: &mut IndexMap<String, IndexMap<String, IndexSet<String>>>,
+    src_trans_read: &IndexMap<String, IndexMap<String, IndexSet<String>>>,
+    merge_trans_id: &str,
+    source_name: &str,
+    source_trans_id: &str,
+    merge_gene_id: &str,
+) -> anyhow::Result<()> {
+    trans_gene.entry(merge_trans_id.to_string()).or_insert_with(|| merge_gene_id.to_string());
+    if !merge_trans.contains_key(merge_trans_id) {
+        merge_trans_list.push(merge_trans_id.to_string());
+    }
+    let read_list: Vec<String> = src_trans_read
+        .get(source_name)
+        .and_then(|t| t.get(source_trans_id))
+        .map(|s| s.iter().cloned().collect())
+        .unwrap_or_default();
+    merge_trans
+        .entry(merge_trans_id.to_string())
+        .or_default()
+        .entry(source_name.to_string())
+        .or_default()
+        .insert(source_trans_id.to_string(), read_list.clone());
+    let gr = gene_read
+        .entry(merge_gene_id.to_string())
+        .or_default()
+        .entry(source_name.to_string())
+        .or_default();
+    for r in read_list {
+        gr.insert(r);
     }
     Ok(())
 }
