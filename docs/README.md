@@ -16,6 +16,7 @@ Then dive into the per-area reference pages:
 | [File statistics](stats.md) | `tama stats degradation / saturation / model-changes` |
 | [Format conversion](format-conversion.md) | `tama format bed2gtf / gtf2bed / gff2bed / fastq2fasta / id-filter` |
 | [Utilities](utilities.md) | `tama cleanup polya`, `tama split fasta / sam`, `tama variants call` |
+| [Benchmarks](benchmarks.md) | `collapse` speed & memory vs. the original Python 2 |
 
 Each page describes purpose, inputs, outputs (exact filenames), and the important
 flags with their defaults. Every flag mirrors the original Python tool's short

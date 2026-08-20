@@ -166,6 +166,13 @@ The golden reference outputs live under `tests/golden*`. To regenerate them from
 the original Python 2 tools you need a Python 2.7 + BioPython environment; see
 `tests/golden/regenerate.sh` (it builds one with conda/mamba).
 
+## Performance
+
+On `tama collapse` (the compute-heavy core), the Rust port runs **~26–60× faster**
+and uses **~5–10× less memory** than the original Python 2, with byte-identical
+output. The advantage widens with input size. Full table, methodology, and
+caveats: [`docs/benchmarks.md`](docs/benchmarks.md).
+
 ## Citation
 
 This project is an independent reimplementation. **If you use it in your
