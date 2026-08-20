@@ -1,0 +1,36 @@
+BLASTP 2.9.0+
+
+
+Query= trans1:F1:0:198:1:65:65:M
+
+Length=65
+                                                                      Score        E
+Sequences producing significant alignments:                          (Bits)     Value
+
+  SUBJ1                                                                 130        1e-40
+
+>SUBJ1 example protein OS=Test
+Length=65
+
+ Score = 130 bits (327),  Expect = 1e-40, Method: Compositional matrix adjust.
+ Identities = 65/65 (100%), Positives = 65/65 (100%), Gaps = 0/65 (0%)
+
+Query  1   MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  60
+           MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Sbjct  1   MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  60
+
+Query  61  AAAAA  65
+           AAAAA
+Sbjct  61  AAAAA  65
+
+
+
+Query= trans2:F1:0:99:1:32:32:M
+
+Length=32
+
+
+***** No hits found *****
+
+
+  Database: test

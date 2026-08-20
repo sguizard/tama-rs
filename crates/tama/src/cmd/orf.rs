@@ -3,6 +3,7 @@
 use std::io::{BufRead, Write};
 
 use clap::{Args as ClapArgs, Subcommand};
+use indexmap::IndexMap;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -55,7 +56,17 @@ enum Cmd {
         sj_dist: i64,
     },
     /// Parse blastp output for ORF selection. (tama_orf_blastp_parser)
-    BlastpParse,
+    BlastpParse {
+        /// BLASTP pairwise output file. (`-b`)
+        #[arg(short = 'b', long)]
+        blastp: std::path::PathBuf,
+        /// Output file. (`-o`)
+        #[arg(short = 'o', long)]
+        output: std::path::PathBuf,
+        /// DB ID format: `uniref` or `ensembl`. (`-f`)
+        #[arg(short = 'f', long, default_value = "uniref")]
+        format: String,
+    },
 }
 
 pub fn run(args: Args) -> anyhow::Result<()> {
@@ -65,7 +76,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         Cmd::AddCds { parse, bed, fasta, output, stop, sj_dist } => {
             add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist)
         }
-        Cmd::BlastpParse => Err(super::not_implemented("orf blastp-parse")),
+        Cmd::BlastpParse { blastp, output, format } => blastp_parse(&blastp, &output, &format),
     }
 }
 
@@ -422,6 +433,274 @@ fn extract_cds(bed: &std::path::Path, stop: &str, output: &std::path::Path) -> a
         cols[11] = starts;
         cols[3] = format!("cds;{}", cols[3]);
         writeln!(out, "{}", cols.join("\t"))?;
+    }
+    Ok(())
+}
+
+/// One BLASTP subject hit for a query ORF.
+#[derive(Clone)]
+struct Hit {
+    s_name: String,
+    s_len: i64,
+    ident_percent: String,
+    s_align_len: i64,
+}
+
+/// Parse BLASTP pairwise output and pick the best ORF/hit per transcript.
+/// Ports `tama_orf_blastp_parser`.
+fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str) -> anyhow::Result<()> {
+    use std::io::BufRead;
+
+    let mut query_dict: IndexMap<String, Vec<Hit>> = IndexMap::new();
+    let mut trans_id_list: Vec<String> = Vec::new();
+    let mut trans_id_dict: IndexMap<String, IndexMap<String, ()>> = IndexMap::new();
+
+    // parser state
+    let (mut q_name, mut s_name) = (String::new(), String::new());
+    let (mut s_len, mut q_len): (i64, i64) = (0, 0);
+    let (mut align_start_flag, mut s_name_flag) = (0i32, 0i32);
+    let (mut query_id_line_flag, mut passed_headers_flag) = (0i32, 0i32);
+    let (mut split_header_flag, mut hit_start_flag) = (0i32, 0i32);
+    let (mut empty_line_count, mut prev_line_length) = (0i32, 0i64);
+    let (mut s_start, mut s_end): (i64, i64) = (0, 0);
+    let mut ident_percent = String::from("0");
+    let mut s_name_list: Vec<String> = Vec::new();
+    let mut query_line = String::new();
+
+    macro_rules! push_hit {
+        () => {{
+            let hit = Hit {
+                s_name: s_name.clone(),
+                s_len,
+                ident_percent: ident_percent.clone(),
+                s_align_len: s_end + 1 - s_start,
+            };
+            if let Some(qm) = trans_id_dict.get_mut(q_name.split(':').next().unwrap_or(&q_name)) {
+                qm.entry(q_name.clone()).or_default();
+            }
+            query_dict.entry(q_name.clone()).or_default().push(hit);
+            s_name.clear();
+            s_len = 0;
+            ident_percent = "0".to_string();
+            s_start = 0;
+            s_end = 0;
+        }};
+    }
+
+    for line in tama_io::open_reader(blastp)?.lines() {
+        let line = line?.trim_end_matches(['\n', '\r']).to_string();
+
+        if s_name_flag == 1 {
+            if let Some(rest) = line.strip_prefix("Length=") {
+                let mut sn: String = s_name_list.concat();
+                if format == "uniref" {
+                    sn = sn.split_whitespace().next().unwrap_or("").to_string();
+                } else if format == "ensembl" {
+                    let (mut g, mut t) = (String::new(), String::new());
+                    for f in sn.split_whitespace() {
+                        if let Some(v) = f.strip_prefix("gene:") { g = v.to_string(); }
+                        if let Some(v) = f.strip_prefix("transcript:") { t = v.to_string(); }
+                    }
+                    sn = format!("{g},{t}");
+                }
+                s_name = sn;
+                s_name_flag = 0;
+                s_name_list.clear();
+                if s_len == 0 {
+                    s_len = rest.trim().parse().unwrap_or(0);
+                }
+                continue;
+            } else {
+                s_name_list.push(line.clone());
+            }
+        }
+
+        if query_id_line_flag > 0 {
+            if let Some(rest) = line.strip_prefix("Length=") {
+                if q_len == 0 {
+                    q_len = rest.trim().parse().unwrap_or(0);
+                }
+                query_dict.entry(q_name.clone()).or_default();
+                let trans_id = q_name.split(':').next().unwrap_or(&q_name).split('(').next().unwrap_or(&q_name).to_string();
+                if !trans_id_dict.contains_key(&trans_id) {
+                    trans_id_list.push(trans_id.clone());
+                }
+                trans_id_dict.entry(trans_id).or_default().insert(q_name.clone(), ());
+                query_id_line_flag = 0;
+            } else if !line.is_empty() {
+                q_name.push_str(&line);
+            }
+            continue;
+        }
+
+        if passed_headers_flag > 0 {
+            if empty_line_count > 1 && hit_start_flag == 1 {
+                hit_start_flag = 0;
+                empty_line_count = 0;
+                push_hit!();
+            }
+            if line.is_empty() && hit_start_flag == 1 {
+                if prev_line_length == 0 {
+                    empty_line_count += 1;
+                } else {
+                    empty_line_count = 1;
+                }
+            }
+        }
+        prev_line_length = line.len() as i64;
+        if prev_line_length > 0 {
+            empty_line_count = 0;
+        }
+
+        if split_header_flag > 0 {
+            q_name = format!("{query_line}{line}");
+            query_id_line_flag = 1;
+            passed_headers_flag = 1;
+            split_header_flag = 0;
+            if q_name.contains("missing_nucleotides") {
+                query_id_line_flag = 0;
+                passed_headers_flag = 0;
+            }
+            continue;
+        }
+
+        if !(line.starts_with(" S") || line.starts_with(" I") || line.starts_with("Query")
+            || line.starts_with("Sbjct") || line.starts_with("Length") || line.starts_with('>'))
+        {
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("Query=") {
+            if line.contains("missing_nucleotides") {
+                continue;
+            }
+            q_name = rest.split_whitespace().next().unwrap_or("").to_string();
+            q_len = 0;
+            passed_headers_flag = 1;
+            query_id_line_flag = 1;
+            if line.ends_with('-') {
+                query_id_line_flag = 0;
+                passed_headers_flag = 0;
+                split_header_flag = 1;
+                query_line = q_name.clone();
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('>') {
+            s_name_list.clear();
+            s_name_list.push(rest.trim_start().to_string());
+            s_len = 0;
+            hit_start_flag = 1;
+            empty_line_count = 0;
+            s_name_flag = 1;
+            continue;
+        }
+        if line.starts_with(" Score") {
+            continue;
+        }
+        if line.starts_with(" Identities") {
+            // Identities = A/B (C%), Positives = D/E (F%), ...
+            let comma: Vec<&str> = line.split(',').collect();
+            let ident_line = comma[0].split("= ").nth(1).unwrap_or("");
+            let after_slash = ident_line.split('/').nth(1).unwrap_or("");
+            ident_percent = after_slash
+                .split_whitespace()
+                .nth(1)
+                .and_then(|x| x.split('(').nth(1))
+                .and_then(|x| x.split('%').next())
+                .unwrap_or("0")
+                .to_string();
+            align_start_flag = 1;
+            continue;
+        }
+        if line.starts_with("Query ") {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() < 4 {
+                continue;
+            }
+            continue;
+        }
+        if line.starts_with("Sbjct ") {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if align_start_flag == 1 {
+                s_start = f[1].parse().unwrap_or(0);
+                s_end = f[3].parse().unwrap_or(0);
+                align_start_flag = 0;
+            } else if f.len() >= 4 {
+                s_end = f[3].parse().unwrap_or(0);
+            }
+            continue;
+        }
+        if line == "***** No hits found *****" {
+            s_name.clear();
+            s_len = 0;
+            ident_percent = "0".to_string();
+            s_start = 0;
+            s_end = 0;
+            continue;
+        }
+    }
+
+    // best match per transcript
+    let mut out = tama_io::create_writer(output)?;
+    for trans_id in &trans_id_list {
+        let mut best_line = String::new();
+        let mut best_pct = 0.0f64;
+        let q_names: Vec<String> = trans_id_dict[trans_id].keys().cloned().collect();
+        for q_name in &q_names {
+            let parts: Vec<&str> = q_name.split(':').collect();
+            let n = parts.len();
+            let q_frame = parts[n - 7];
+            let tid = parts[0].split('(').next().unwrap_or(parts[0]);
+            if q_frame == "missing_nucleotides" {
+                best_line = format!("{tid}\tno_frame\t-1\t-1\t-1\t-1\tnone\tmissing_nucleotides\t-1\t-1");
+                break;
+            }
+            let q_nuc_start = parts[n - 6];
+            let q_nuc_end = parts[n - 5];
+            let q_rel_start = parts[n - 4];
+            let q_rel_end = parts[n - 3];
+            for hit in query_dict.get(q_name).map(|v| v.as_slice()).unwrap_or(&[]) {
+                let pct = hit.s_align_len as f64 / hit.s_len as f64;
+                let pct_fmt = (pct * 100.0) as i64;
+                let flag = if pct as i64 == 1 {
+                    "full_match"
+                } else if pct >= 0.9 {
+                    "90_match"
+                } else if pct >= 0.5 {
+                    "50_match"
+                } else {
+                    "bad_match"
+                };
+                if pct > best_pct {
+                    best_line = format!(
+                        "{tid}\t{q_frame}\t{q_nuc_start}\t{q_nuc_end}\t{q_rel_start}\t{q_rel_end}\t{}\t{flag}\t{pct_fmt}\t{}",
+                        hit.s_name, hit.ident_percent
+                    );
+                    best_pct = pct;
+                }
+            }
+        }
+        if best_line.is_empty() {
+            // no hits: pick the ORF with the longest length
+            let mut max_len = 0i64;
+            let mut chosen = String::new();
+            for q_name in &q_names {
+                let parts: Vec<&str> = q_name.split(':').collect();
+                let n = parts.len();
+                let q_len: i64 = parts[n - 2].parse().unwrap_or(0);
+                if q_len > max_len {
+                    max_len = q_len;
+                    let tid = parts[0].split('(').next().unwrap_or(parts[0]);
+                    chosen = format!(
+                        "{tid}\t{}\t{}\t{}\t{}\t{}\tnone\tno_hit\t0\t0",
+                        parts[n - 7], parts[n - 6], parts[n - 5], parts[n - 4], parts[n - 3]
+                    );
+                }
+            }
+            best_line = chosen;
+        }
+        writeln!(out, "{best_line}")?;
     }
     Ok(())
 }
