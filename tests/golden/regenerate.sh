@@ -30,4 +30,13 @@ mkdir -p "$nocap_dir"
 conda run -n tama_py2 python "$ref/tama_collapse.py" \
   -s "$data/gmap_test.sam" -f "$data/test_genome.fa" -p "$nocap_dir/collapse" -x no_cap
 
-echo "Golden outputs regenerated in $here and $nocap_dir"
+# merge golden: single capped source (the capped collapse output)
+merge_in="$root/test_data/merge"
+merge_gold="$root/tests/golden_merge"
+mkdir -p "$merge_in" "$merge_gold"
+cp "$here/collapse.bed" "$merge_in/tama_collapse_test.bed"
+printf 'tama_collapse_test.bed\tcapped\t1,1,1\ttestmerge\n' > "$merge_in/filelist_merge.txt"
+( cd "$merge_in" && conda run -n tama_py2 python "$ref/tama_merge.py" \
+    -f filelist_merge.txt -p "$merge_gold/merged" )
+
+echo "Golden outputs regenerated in $here, $nocap_dir and $merge_gold"
