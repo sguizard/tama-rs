@@ -1,0 +1,12 @@
+[package]
+name = "tama-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core domain model and algorithms for TAMA"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+log.workspace = true

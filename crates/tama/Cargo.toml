@@ -1,0 +1,20 @@
+[package]
+name = "tama"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "tama"
+path = "src/main.rs"
+
+[dependencies]
+tama-core.workspace = true
+tama-io.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+log.workspace = true
+env_logger.workspace = true
+indexmap.workspace = true
+rayon.workspace = true
