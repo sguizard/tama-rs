@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 #[test]
@@ -40,7 +42,12 @@ fn variants_call_matches_golden() {
     ] {
         assert_eq!(
             read(format!("{p}{suf}")),
-            read(r.join(format!("tests/golden_variants/{gold}")).to_str().unwrap().to_string()),
+            read(
+                r.join(format!("tests/golden_variants/{gold}"))
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            ),
             "{suf}"
         );
     }
@@ -53,7 +60,8 @@ fn variants_call_matches_golden() {
             .map(|l| {
                 let c: Vec<&str> = l.split('\t').collect();
                 let head = c[..7.min(c.len())].join("\t");
-                let mut reads: Vec<&str> = c.get(7).map(|x| x.split(',').collect()).unwrap_or_default();
+                let mut reads: Vec<&str> =
+                    c.get(7).map(|x| x.split(',').collect()).unwrap_or_default();
                 reads.sort_unstable();
                 format!("{head}\t{}", reads.join(","))
             })
@@ -63,7 +71,12 @@ fn variants_call_matches_golden() {
     };
     assert_eq!(
         norm(&read(format!("{p}_variants.txt"))),
-        norm(&read(r.join("tests/golden_variants/variants.txt").to_str().unwrap().to_string()))
+        norm(&read(
+            r.join("tests/golden_variants/variants.txt")
+                .to_str()
+                .unwrap()
+                .to_string()
+        ))
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

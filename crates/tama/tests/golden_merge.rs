@@ -9,7 +9,9 @@
 use std::path::PathBuf;
 
 fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 fn sorted_lines(s: &str) -> Vec<&str> {
@@ -44,7 +46,11 @@ fn merge_capped_matches_golden() {
     for name in ["merged.bed", "merged_merge.txt", "merged_gene_report.txt"] {
         let mine = read(out_dir.join(name));
         let gold = read(golden.join(name));
-        assert_eq!(sorted_lines(&mine), sorted_lines(&gold), "{name} must match");
+        assert_eq!(
+            sorted_lines(&mine),
+            sorted_lines(&gold),
+            "{name} must match"
+        );
     }
 
     // trans_report: all columns exact except `all_source_trans` (col 8) which is
@@ -57,8 +63,10 @@ fn merge_capped_matches_golden() {
             .map(|l| {
                 let cols: Vec<&str> = l.split('\t').collect();
                 let head = cols[..cols.len().min(7)].join("\t");
-                let mut members: Vec<&str> =
-                    cols.get(7).map(|c| c.split(',').collect()).unwrap_or_default();
+                let mut members: Vec<&str> = cols
+                    .get(7)
+                    .map(|c| c.split(',').collect())
+                    .unwrap_or_default();
                 members.sort_unstable();
                 format!("{head}\t{}", members.join(","))
             })

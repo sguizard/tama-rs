@@ -102,12 +102,20 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             delim,
         } => id_filter(&bed, &output, &filter, &method, &reshuffle, &delim),
         Cmd::Bed2gtfOrf { bed, output } => bed2gtf_orf(&bed, &output),
-        Cmd::Gtf2bed { source, gtf, output } => match source {
+        Cmd::Gtf2bed {
+            source,
+            gtf,
+            output,
+        } => match source {
             GtfSource::Stringtie => gtf2bed_stringtie(&gtf, &output),
             GtfSource::Ensembl => gtf2bed_ensembl(&gtf, &output),
             GtfSource::Ncbi => gtf2bed_ncbi(&gtf, &output),
         },
-        Cmd::Gff2bed { source, gff, output } => match source {
+        Cmd::Gff2bed {
+            source,
+            gff,
+            output,
+        } => match source {
             GffSource::Cupcake => gff2bed_cupcake(&gff, &output),
             GffSource::Liftoff => gff2bed_liftoff(&gff, &output),
         },
@@ -138,8 +146,16 @@ fn bed2gtf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()
         let first = &transcripts[idxs[0]];
         let chrom = &first.scaffold;
         let strand = first.strand;
-        let min_start = idxs.iter().map(|&i| transcripts[i].trans_start).min().unwrap();
-        let max_end = idxs.iter().map(|&i| transcripts[i].trans_end).max().unwrap();
+        let min_start = idxs
+            .iter()
+            .map(|&i| transcripts[i].trans_start)
+            .min()
+            .unwrap();
+        let max_end = idxs
+            .iter()
+            .map(|&i| transcripts[i].trans_end)
+            .max()
+            .unwrap();
 
         writeln!(
             out,
@@ -216,8 +232,16 @@ fn bed2gtf_orf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Resul
         let id_split: Vec<&str> = c[3].split(';').collect();
         let (gene_id, trans_id) = (id_split[0].to_string(), id_split[1].to_string());
         let t0: i64 = c[1].parse()?;
-        let sizes: Vec<i64> = c[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
-        let rels: Vec<i64> = c[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let sizes: Vec<i64> = c[10]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
+        let rels: Vec<i64> = c[11]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
         let starts: Vec<i64> = rels.iter().map(|r| t0 + r + 1).collect();
         // calc_end: start + block_size - 1 (bed 0-based to gtf 1-based)
         let ends: Vec<i64> = starts.iter().zip(&sizes).map(|(s, z)| s + z - 1).collect();
@@ -241,7 +265,10 @@ fn bed2gtf_orf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Resul
         if !gene_trans.contains_key(&gene_id) {
             gene_order.push(gene_id.clone());
         }
-        gene_trans.entry(gene_id).or_default().push(trans_id.clone());
+        gene_trans
+            .entry(gene_id)
+            .or_default()
+            .push(trans_id.clone());
         trans.insert(trans_id, tx);
     }
 
@@ -279,23 +306,42 @@ fn write_orf_trans(
     writeln!(
         out,
         "{}\t{source}\ttranscript\t{}\t{}\t.\t{}\t.\t{}",
-        tx.chrom, tx.t_start, tx.t_end, tx.strand,
-        anno(&[("gene_id", g), ("transcript_id", t), ("gene_source", "tama"), ("transcript_source", "tama")])
+        tx.chrom,
+        tx.t_start,
+        tx.t_end,
+        tx.strand,
+        anno(&[
+            ("gene_id", g),
+            ("transcript_id", t),
+            ("gene_source", "tama"),
+            ("transcript_source", "tama")
+        ])
     )?;
 
     let mut five_utr: Vec<(i64, i64, usize)> = Vec::new();
     let mut three_utr: Vec<(i64, i64, usize)> = Vec::new();
 
-    let feature = |out: &mut Box<dyn Write>, region: &str, s: i64, e: i64, e_num: usize| -> anyhow::Result<()> {
+    let feature = |out: &mut Box<dyn Write>,
+                   region: &str,
+                   s: i64,
+                   e: i64,
+                   e_num: usize|
+     -> anyhow::Result<()> {
         writeln!(
             out,
             "{}\t{source}\t{region}\t{s}\t{e}\t.\t{}\t.\t{}",
-            tx.chrom, tx.strand,
+            tx.chrom,
+            tx.strand,
             anno(&[
-                ("gene_id", g), ("transcript_id", t), ("exon_number", &e_num.to_string()),
-                ("gene_source", "tama"), ("transcript_source", "tama"),
-                ("prot_id", &tx.prot_id), ("degrade_flag", &tx.degrade),
-                ("match_flag", &tx.match_flag), ("nmd_flag", &tx.nmd),
+                ("gene_id", g),
+                ("transcript_id", t),
+                ("exon_number", &e_num.to_string()),
+                ("gene_source", "tama"),
+                ("transcript_source", "tama"),
+                ("prot_id", &tx.prot_id),
+                ("degrade_flag", &tx.degrade),
+                ("match_flag", &tx.match_flag),
+                ("nmd_flag", &tx.nmd),
             ])
         )?;
         Ok(())
@@ -304,7 +350,11 @@ fn write_orf_trans(
     let no_cds = tx.cds_start == 1 && tx.cds_end == 0;
     for i in 0..tx.num_exons {
         let e_num = i + 1;
-        let e_index = if tx.strand == '+' { i } else { tx.num_exons - i - 1 };
+        let e_index = if tx.strand == '+' {
+            i
+        } else {
+            tx.num_exons - i - 1
+        };
         let e_start = tx.starts[e_index];
         let e_end = tx.ends[e_index];
         feature(out, "exon", e_start, e_end, e_num)?;
@@ -460,8 +510,12 @@ fn gtf2bed_ensembl(gtf: &std::path::Path, output: &std::path::Path) -> anyhow::R
             t_start: cols[3].parse::<i64>()? - 1,
             t_end: cols[4].parse()?,
             gene_id: gtf_attr(cols[8], "gene_id").unwrap_or("").to_string(),
-            gene_class: gtf_attr(cols[8], "gene_biotype").unwrap_or("NA").to_string(),
-            trans_class: gtf_attr(cols[8], "transcript_biotype").unwrap_or("NA").to_string(),
+            gene_class: gtf_attr(cols[8], "gene_biotype")
+                .unwrap_or("NA")
+                .to_string(),
+            trans_class: gtf_attr(cols[8], "transcript_biotype")
+                .unwrap_or("NA")
+                .to_string(),
             ..Default::default()
         };
         if !trans.contains_key(&trans_id) {
@@ -481,7 +535,9 @@ fn gtf2bed_ensembl(gtf: &std::path::Path, output: &std::path::Path) -> anyhow::R
             continue;
         }
         let trans_id = gtf_attr(cols[8], "transcript_id").unwrap_or("");
-        let Some(tx) = trans.get_mut(trans_id) else { continue };
+        let Some(tx) = trans.get_mut(trans_id) else {
+            continue;
+        };
         let (start, end): (i64, i64) = (cols[3].parse()?, cols[4].parse()?);
         if feature == "exon" {
             tx.e_starts.push(start - 1);
@@ -666,15 +722,24 @@ fn gtf2bed_stringtie(gtf: &std::path::Path, output: &std::path::Path) -> anyhow:
                 cur_trans = id_code.to_string();
                 let key = (cur_gene.clone(), cur_trans.clone());
                 if !trans.contains_key(&key) {
-                    gene_trans.get_mut(&cur_gene).unwrap().push(cur_trans.clone());
+                    gene_trans
+                        .get_mut(&cur_gene)
+                        .unwrap()
+                        .push(cur_trans.clone());
                     trans.insert(
                         key,
-                        Tx { chrom: chrom.to_string(), strand, ..Default::default() },
+                        Tx {
+                            chrom: chrom.to_string(),
+                            strand,
+                            ..Default::default()
+                        },
                     );
                 }
             } else if field.contains("exon_number") {
                 let e_num: i64 = id_code.parse()?;
-                let tx = trans.get_mut(&(cur_gene.clone(), cur_trans.clone())).unwrap();
+                let tx = trans
+                    .get_mut(&(cur_gene.clone(), cur_trans.clone()))
+                    .unwrap();
                 if tx.exons.insert(e_num, (e_start, e_end)).is_some() {
                     anyhow::bail!("duplicate exon number {e_num}");
                 }
@@ -687,7 +752,13 @@ fn gtf2bed_stringtie(gtf: &std::path::Path, output: &std::path::Path) -> anyhow:
         for trans_id in &gene_trans[gene] {
             let tx = &trans[&(gene.clone(), trans_id.clone())];
             let exons: Vec<(i64, i64)> = tx.exons.values().copied().collect();
-            records.push((tx.chrom.clone(), tx.strand, gene.clone(), trans_id.clone(), exons));
+            records.push((
+                tx.chrom.clone(),
+                tx.strand,
+                gene.clone(),
+                trans_id.clone(),
+                exons,
+            ));
         }
     }
     write_gtf_bed(&records, output)
@@ -738,8 +809,20 @@ fn gff_attr<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
 /// 0..0 if non-coding).
 fn gff2bed_liftoff(gff: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
     const TRANS_TYPES: &[&str] = &[
-        "transcript", "mRNA", "ncRNA", "tRNA", "rRNA", "snRNA", "miRNA", "primary_transcript",
-        "snoRNA", "V_gene_segment", "guide_RNA", "C_gene_segment", "telomerase_RNA", "SRP_RNA",
+        "transcript",
+        "mRNA",
+        "ncRNA",
+        "tRNA",
+        "rRNA",
+        "snRNA",
+        "miRNA",
+        "primary_transcript",
+        "snoRNA",
+        "V_gene_segment",
+        "guide_RNA",
+        "C_gene_segment",
+        "telomerase_RNA",
+        "SRP_RNA",
         "lnc_RNA",
     ];
 
@@ -797,7 +880,9 @@ fn gff2bed_liftoff(gff: &std::path::Path, output: &std::path::Path) -> anyhow::R
         }
         let parent = gff_attr(cols[8], "Parent").unwrap_or("");
         let trans_id = parent.split(',').next().unwrap_or(parent);
-        let Some(tx) = trans.get_mut(trans_id) else { continue };
+        let Some(tx) = trans.get_mut(trans_id) else {
+            continue;
+        };
         let (start, end): (i64, i64) = (cols[3].parse()?, cols[4].parse()?);
         if feature == "exon" {
             tx.e_starts.push(start - 1);
@@ -905,7 +990,13 @@ fn gff2bed_cupcake(gff: &std::path::Path, output: &std::path::Path) -> anyhow::R
     for gene in &gene_order {
         for trans_id in &gene_trans[gene] {
             let (chrom, strand, exons) = &trans[&(gene.clone(), trans_id.clone())];
-            records.push((chrom.clone(), *strand, gene.clone(), trans_id.clone(), exons.clone()));
+            records.push((
+                chrom.clone(),
+                *strand,
+                gene.clone(),
+                trans_id.clone(),
+                exons.clone(),
+            ));
         }
     }
     write_gtf_bed(&records, output)
@@ -1007,7 +1098,12 @@ fn id_parse(
                 }
                 other => bail!("invalid filter level {other:?}"),
             }
-            let mut new = vec![ens_gene, ens_trans, tama_gene.to_string(), tama_trans.to_string()];
+            let mut new = vec![
+                ens_gene,
+                ens_trans,
+                tama_gene.to_string(),
+                tama_trans.to_string(),
+            ];
             new.extend(other.iter().map(|s| s.to_string()));
             Ok(Some(new.join(";")))
         }
@@ -1038,7 +1134,12 @@ fn id_parse(
             if filter == "only_match" && !ens_gene.contains("ENS") {
                 return Ok(None);
             }
-            let mut new = vec![ens_gene, ens_trans, tama_gene.to_string(), tama_trans.to_string()];
+            let mut new = vec![
+                ens_gene,
+                ens_trans,
+                tama_gene.to_string(),
+                tama_trans.to_string(),
+            ];
             new.extend(other.iter().map(|s| s.to_string()));
             Ok(Some(new.join(";")))
         }

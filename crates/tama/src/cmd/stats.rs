@@ -59,11 +59,23 @@ enum Cmd {
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
-        Cmd::Degradation { capped, nocap, output } => degradation(&capped, &nocap, &output),
-        Cmd::ModelChanges { bed, read, output, ref_source, alt_source } => {
-            model_changes(&bed, &read, &output, &ref_source, &alt_source)
-        }
-        Cmd::Saturation { report, bin, output } => saturation(&report, bin, &output),
+        Cmd::Degradation {
+            capped,
+            nocap,
+            output,
+        } => degradation(&capped, &nocap, &output),
+        Cmd::ModelChanges {
+            bed,
+            read,
+            output,
+            ref_source,
+            alt_source,
+        } => model_changes(&bed, &read, &output, &ref_source, &alt_source),
+        Cmd::Saturation {
+            report,
+            bin,
+            output,
+        } => saturation(&report, bin, &output),
     }
 }
 
@@ -102,7 +114,10 @@ fn read_deg(path: &std::path::Path) -> anyhow::Result<DegStats> {
             *e = num_exons;
         }
         s.gene_reads.get_mut(&gene_id).unwrap().insert(read_id);
-        s.gene_trans.get_mut(&gene_id).unwrap().insert(trans_id.clone());
+        s.gene_trans
+            .get_mut(&gene_id)
+            .unwrap()
+            .insert(trans_id.clone());
         let te = s.trans_max_exons.entry(trans_id).or_insert(0);
         if *te < num_exons {
             *te = num_exons;
@@ -154,24 +169,54 @@ fn degradation(
     let mut out = tama_io::create_writer(output)?;
     let mut w = |line: String| writeln!(out, "{line}");
     w(format!("Degradation Signature = {}", fmt_float(deg_sig)))?;
-    w(format!("Capped multi-exon, multi-read, transcript count = {cap_tc}"))?;
-    w(format!("No-cap multi-exon, multi-read, transcript count = {nc_tc}"))?;
-    w(format!("Capped total transcript count = {}", cap.trans_max_exons.len()))?;
-    w(format!("No-cap total transcript count = {}", nc.trans_max_exons.len()))?;
-    w(format!("Capped single exon trans count = {}", se_trans(&cap)))?;
-    w(format!("No-cap single exon trans count = {}", se_trans(&nc)))?;
-    w(format!("Capped multi exon trans count = {}", me_trans(&cap)))?;
+    w(format!(
+        "Capped multi-exon, multi-read, transcript count = {cap_tc}"
+    ))?;
+    w(format!(
+        "No-cap multi-exon, multi-read, transcript count = {nc_tc}"
+    ))?;
+    w(format!(
+        "Capped total transcript count = {}",
+        cap.trans_max_exons.len()
+    ))?;
+    w(format!(
+        "No-cap total transcript count = {}",
+        nc.trans_max_exons.len()
+    ))?;
+    w(format!(
+        "Capped single exon trans count = {}",
+        se_trans(&cap)
+    ))?;
+    w(format!(
+        "No-cap single exon trans count = {}",
+        se_trans(&nc)
+    ))?;
+    w(format!(
+        "Capped multi exon trans count = {}",
+        me_trans(&cap)
+    ))?;
     w(format!("No-cap multi exon trans count = {}", me_trans(&nc)))?;
-    w(format!("Capped total gene count = {}", cap.gene_order.len()))?;
+    w(format!(
+        "Capped total gene count = {}",
+        cap.gene_order.len()
+    ))?;
     w(format!("No-cap total gene count = {}", nc.gene_order.len()))?;
     w(format!("Capped single exon gene count = {cap_se_g}"))?;
     w(format!("No-cap single exon gene count = {nc_se_g}"))?;
     w(format!("Capped multi exon gene count = {cap_me_g}"))?;
     w(format!("No-cap multi exon gene count = {nc_me_g}"))?;
-    w(format!("Capped single exon single read gene count = {cap_se_sr}"))?;
-    w(format!("No-cap single exon single read gene count = {nc_se_sr}"))?;
-    w(format!("Capped multi exon single read gene count = {cap_me_sr}"))?;
-    w(format!("No-cap multi exon single read gene count = {nc_me_sr}"))?;
+    w(format!(
+        "Capped single exon single read gene count = {cap_se_sr}"
+    ))?;
+    w(format!(
+        "No-cap single exon single read gene count = {nc_se_sr}"
+    ))?;
+    w(format!(
+        "Capped multi exon single read gene count = {cap_me_sr}"
+    ))?;
+    w(format!(
+        "No-cap multi exon single read gene count = {nc_me_sr}"
+    ))?;
     Ok(())
 }
 
@@ -251,9 +296,22 @@ fn model_changes(
                 if !read_src_gene.contains_key(r) {
                     all_reads.push(r.to_string());
                 }
-                read_src_gene.entry(r.to_string()).or_default().entry(src.to_string()).or_default().insert(mg.to_string(), ());
-                read_gene.entry(r.to_string()).or_default().insert(mg.to_string(), ());
-                read_src_trans.entry(r.to_string()).or_default().entry(src.to_string()).or_default().insert(mt.to_string(), ());
+                read_src_gene
+                    .entry(r.to_string())
+                    .or_default()
+                    .entry(src.to_string())
+                    .or_default()
+                    .insert(mg.to_string(), ());
+                read_gene
+                    .entry(r.to_string())
+                    .or_default()
+                    .insert(mg.to_string(), ());
+                read_src_trans
+                    .entry(r.to_string())
+                    .or_default()
+                    .entry(src.to_string())
+                    .or_default()
+                    .insert(mt.to_string(), ());
             }
         }
     }
@@ -261,9 +319,14 @@ fn model_changes(
     let mut out_gene = tama_io::create_writer(format!("{output_prefix}_diff_genes.txt"))?;
     let mut out_trans = tama_io::create_writer(format!("{output_prefix}_diff_trans.txt"))?;
     let mut out_report = tama_io::create_writer(format!("{output_prefix}_diff_report.txt"))?;
-    let mut out_onegene = tama_io::create_writer(format!("{output_prefix}_diff_one_source_genes.txt"))?;
-    let mut out_onetrans = tama_io::create_writer(format!("{output_prefix}_diff_one_source_trans.txt"))?;
-    writeln!(out_gene, "read_id\tnum_genes\tall_gene_line\tall_pos_line\tall_trans_line")?;
+    let mut out_onegene =
+        tama_io::create_writer(format!("{output_prefix}_diff_one_source_genes.txt"))?;
+    let mut out_onetrans =
+        tama_io::create_writer(format!("{output_prefix}_diff_one_source_trans.txt"))?;
+    writeln!(
+        out_gene,
+        "read_id\tnum_genes\tall_gene_line\tall_pos_line\tall_trans_line"
+    )?;
     writeln!(out_trans, "read_id\talt_trans_diff_count\talt_diff_trans_id_list_line\talt_trans_id_list_line\tref_trans_id_list_line")?;
 
     let mut all_source_list: Vec<String> = source_set.keys().cloned().collect();
@@ -282,7 +345,8 @@ fn model_changes(
     for read_id in &all_reads {
         let num_genes = read_gene[read_id].len();
         if num_genes > 1 {
-            let (mut gene_lines, mut pos_lines, mut trans_lines) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut gene_lines, mut pos_lines, mut trans_lines) =
+                (Vec::new(), Vec::new(), Vec::new());
             for (src, genes) in &read_src_gene[read_id] {
                 for g in genes.keys() {
                     let (chrom, gs, ge) = &gene_pos[g];
@@ -298,7 +362,13 @@ fn model_changes(
                 }
             }
             read_diff_gene.insert(read_id.clone(), ());
-            writeln!(out_gene, "{read_id}\t{num_genes}\t{}\t{}\t{}", gene_lines.join(","), pos_lines.join(","), trans_lines.join(","))?;
+            writeln!(
+                out_gene,
+                "{read_id}\t{num_genes}\t{}\t{}\t{}",
+                gene_lines.join(","),
+                pos_lines.join(","),
+                trans_lines.join(",")
+            )?;
             continue;
         }
 
@@ -315,7 +385,10 @@ fn model_changes(
                     diff_flag = true;
                     diff_count += 1;
                     alt_diff.push(t.clone());
-                    diff_trans_src.get_mut(alt_source).unwrap().insert(t.clone(), ());
+                    diff_trans_src
+                        .get_mut(alt_source)
+                        .unwrap()
+                        .insert(t.clone(), ());
                     merge_diff_trans.insert(t.clone(), ());
                 }
             }
@@ -327,23 +400,44 @@ fn model_changes(
         if let Some(ref_ts) = src_trans.get(ref_source) {
             for t in ref_ts.keys() {
                 ref_list.push(t.clone());
-                diff_trans_src.get_mut(ref_source).unwrap().insert(t.clone(), ());
+                diff_trans_src
+                    .get_mut(ref_source)
+                    .unwrap()
+                    .insert(t.clone(), ());
                 merge_diff_trans.insert(t.clone(), ());
             }
         } else {
             continue; // read discarded in ref
         }
         read_diff_trans_count += 1;
-        writeln!(out_trans, "{read_id}\t{diff_count}\t{}\t{}\t{}", alt_diff.join(","), alt_list.join(","), ref_list.join(","))?;
+        writeln!(
+            out_trans,
+            "{read_id}\t{diff_count}\t{}\t{}\t{}",
+            alt_diff.join(","),
+            alt_list.join(","),
+            ref_list.join(",")
+        )?;
     }
 
     writeln!(out_report, "num_diff_gene_reads: {}", read_diff_gene.len())?;
     writeln!(out_report, "num_diff_trans_reads: {read_diff_trans_count}")?;
     writeln!(out_report, "num_merge_diff_gene: {}", merge_diff_gene.len())?;
-    writeln!(out_report, "num_merge_diff_trans: {}", merge_diff_trans.len())?;
+    writeln!(
+        out_report,
+        "num_merge_diff_trans: {}",
+        merge_diff_trans.len()
+    )?;
     for s in &all_source_list {
-        writeln!(out_report, "this_source_diff_genes {s}: {}", diff_gene_src[s].len())?;
-        writeln!(out_report, "this_source_diff_trans {s}: {}", diff_trans_src[s].len())?;
+        writeln!(
+            out_report,
+            "this_source_diff_genes {s}: {}",
+            diff_gene_src[s].len()
+        )?;
+        writeln!(
+            out_report,
+            "this_source_diff_trans {s}: {}",
+            diff_trans_src[s].len()
+        )?;
     }
 
     writeln!(out_onegene, "merge_source\tmerge_gene_id")?;
@@ -375,8 +469,16 @@ fn model_changes(
     for s in &all_source_list {
         tot_g += only_gene[s].len();
         tot_t += only_trans[s].len();
-        writeln!(out_report, "only_source_num_genes {s}: {}", only_gene[s].len())?;
-        writeln!(out_report, "only_source_num_trans {s}: {}", only_trans[s].len())?;
+        writeln!(
+            out_report,
+            "only_source_num_genes {s}: {}",
+            only_gene[s].len()
+        )?;
+        writeln!(
+            out_report,
+            "only_source_num_trans {s}: {}",
+            only_trans[s].len()
+        )?;
     }
     writeln!(out_report, "total_one_source_genes_count: {tot_g}")?;
     writeln!(out_report, "total_one_source_trans_count: {tot_t}")?;
@@ -388,7 +490,11 @@ fn model_changes(
 /// Note: the curve is cumulative over reads in the order they first appear; the
 /// original iterated a Python-2 dict (hash order), so only the final totals are
 /// guaranteed to match — the intermediate sampling points differ.
-fn saturation(report: &std::path::Path, bin: usize, output: &std::path::Path) -> anyhow::Result<()> {
+fn saturation(
+    report: &std::path::Path,
+    bin: usize,
+    output: &std::path::Path,
+) -> anyhow::Result<()> {
     use std::io::BufRead;
     let reader = tama_io::open_reader(report)?;
     let mut read_gene: IndexMap<String, String> = IndexMap::new();

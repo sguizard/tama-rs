@@ -29,7 +29,11 @@ enum Cmd {
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
-        Cmd::Polya { fasta, prefix, min_length } => polya(&fasta, &prefix, min_length),
+        Cmd::Polya {
+            fasta,
+            prefix,
+            min_length,
+        } => polya(&fasta, &prefix, min_length),
     }
 }
 
@@ -215,7 +219,11 @@ fn polya(fasta: &std::path::Path, prefix: &str, min_length: usize) -> anyhow::Re
             a_count as f64 / tail_string.len() as f64
         };
         if a_percent < A_PERCENT_THRESHOLD {
-            tail_index = if simple_a_tail_index != 0 { simple_a_tail_index } else { 0 };
+            tail_index = if simple_a_tail_index != 0 {
+                simple_a_tail_index
+            } else {
+                0
+            };
         }
 
         let (trim, tail): (&[u8], &[u8]) = if tail_index > -1 {
@@ -230,11 +238,21 @@ fn polya(fasta: &std::path::Path, prefix: &str, min_length: usize) -> anyhow::Re
         *polya_dict.entry(polya_count).or_insert(0) += 1;
 
         if trim.len() < min_length {
-            writeln!(out_filtered, ">{seq_name}\tshort\ttrimlen:{}\tprelen:{}", trim.len(), seq.len())?;
+            writeln!(
+                out_filtered,
+                ">{seq_name}\tshort\ttrimlen:{}\tprelen:{}",
+                trim.len(),
+                seq.len()
+            )?;
             writeln!(out_filtered, "{seq_string}")?;
             discarded += 1;
         } else if block_overrun {
-            writeln!(out_filtered, ">{seq_name}\toverrun\ttrimlen:{}\tprelen:{}", trim.len(), seq.len())?;
+            writeln!(
+                out_filtered,
+                ">{seq_name}\toverrun\ttrimlen:{}\tprelen:{}",
+                trim.len(),
+                seq.len()
+            )?;
             writeln!(out_filtered, "{seq_string}")?;
             discarded += 1;
         } else {
@@ -286,7 +304,10 @@ fn polya(fasta: &std::path::Path, prefix: &str, min_length: usize) -> anyhow::Re
     writeln!(out_summary, "polya_upto_five_read_count:\t{upto5}")?;
     writeln!(out_summary, "polya_sixormore_read_count:\t{six_more}")?;
     writeln!(out_summary, "longest_trimmed_read_length:\t{longest_trimmed_len}\tlongest_trimmed_read_id:\t{longest_trimmed_id}")?;
-    writeln!(out_summary, "peak_read_length:\t{peak_len}\tpeak_read_count:\t{peak_count}")?;
+    writeln!(
+        out_summary,
+        "peak_read_length:\t{peak_len}\tpeak_read_count:\t{peak_count}"
+    )?;
     writeln!(out_summary, "longest_polya_length:\t{longest_polya_length}")?;
     Ok(())
 }

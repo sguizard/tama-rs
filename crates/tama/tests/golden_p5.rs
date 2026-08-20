@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 fn tama() -> Command {
     Command::new(env!("CARGO_BIN_EXE_tama"))
@@ -50,7 +52,11 @@ fn run_levels(merge: &str) -> String {
     std::fs::create_dir_all(&dir).unwrap();
     let tr = r.join("tests/golden/collapse_trans_read.bed");
     let filelist = dir.join("filelist.txt");
-    std::fs::write(&filelist, format!("testmerge\t{}\ttrans_read\n", tr.display())).unwrap();
+    std::fs::write(
+        &filelist,
+        format!("testmerge\t{}\ttrans_read\n", tr.display()),
+    )
+    .unwrap();
     let prefix = dir.join("out");
     let merge_arg = if merge == "no_merge" {
         "no_merge".to_string()
@@ -65,7 +71,10 @@ fn run_levels(merge: &str) -> String {
         .status()
         .unwrap()
         .success());
-    let out = read(PathBuf::from(format!("{}_read_support.txt", prefix.display())));
+    let out = read(PathBuf::from(format!(
+        "{}_read_support.txt",
+        prefix.display()
+    )));
     let _ = std::fs::remove_dir_all(&dir);
     out
 }
@@ -101,7 +110,10 @@ fn filter_single_read_matches_golden() {
         .unwrap()
         .success());
     let p = prefix.display();
-    assert_eq!(read(PathBuf::from(format!("{p}.bed"))), read(r.join("tests/golden_p5/single_read.bed")));
+    assert_eq!(
+        read(PathBuf::from(format!("{p}.bed"))),
+        read(r.join("tests/golden_p5/single_read.bed"))
+    );
     assert_eq!(
         read(PathBuf::from(format!("{p}_singleton_report.txt"))),
         read(r.join("tests/golden_p5/single_read_report.txt"))
@@ -121,7 +133,10 @@ fn filter_polya_matches_golden() {
     let filelist = dir.join("filelist.txt");
     std::fs::write(
         &filelist,
-        format!("testmerge\t{}\n", r.join("tests/golden/collapse_polya.txt").display()),
+        format!(
+            "testmerge\t{}\n",
+            r.join("tests/golden/collapse_polya.txt").display()
+        ),
     )
     .unwrap();
     let prefix = dir.join("out");
@@ -168,7 +183,10 @@ fn filter_fragments_matches_golden() {
         .unwrap()
         .success());
     let p = prefix.display();
-    assert_eq!(read(PathBuf::from(format!("{p}.bed"))), read(r.join("tests/golden_p5/fragments.bed")));
+    assert_eq!(
+        read(PathBuf::from(format!("{p}.bed"))),
+        read(r.join("tests/golden_p5/fragments.bed"))
+    );
     assert_eq!(
         read(PathBuf::from(format!("{p}_discarded.txt"))),
         read(r.join("tests/golden_p5/fragments_discarded.txt"))
@@ -200,7 +218,11 @@ fn stats_model_changes_matches_golden() {
         v
     };
     // reports/one-source files are order-insensitive byte matches
-    for suf in ["_diff_report.txt", "_diff_one_source_genes.txt", "_diff_one_source_trans.txt"] {
+    for suf in [
+        "_diff_report.txt",
+        "_diff_one_source_genes.txt",
+        "_diff_one_source_trans.txt",
+    ] {
         let mine = sorted(read(PathBuf::from(format!("{p}{suf}"))));
         let gold = sorted(read(r.join(format!("tests/golden_p5/model_changes{suf}"))));
         assert_eq!(mine, gold, "{suf}");
@@ -222,7 +244,10 @@ fn stats_degradation_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p5/degradation.txt")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p5/degradation.txt"))
+    );
     let _ = std::fs::remove_file(out);
 }
 

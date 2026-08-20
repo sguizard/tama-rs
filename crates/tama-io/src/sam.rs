@@ -32,11 +32,9 @@ impl SamRecord {
         if f.len() < 11 {
             return None;
         }
-        let xs_strand = f.iter().find_map(|field| {
-            field
-                .strip_prefix("XS:A:")
-                .and_then(|s| s.chars().next())
-        });
+        let xs_strand = f
+            .iter()
+            .find_map(|field| field.strip_prefix("XS:A:").and_then(|s| s.chars().next()));
         Some(SamRecord {
             read_id: f[0].to_string(),
             flag: f[1].parse().ok()?,

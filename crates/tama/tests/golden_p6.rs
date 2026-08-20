@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 fn tama() -> Command {
     Command::new(env!("CARGO_BIN_EXE_tama"))
@@ -24,7 +26,10 @@ fn format_bed2gtf_orf_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/bed2gtf_orf.gtf")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/bed2gtf_orf.gtf"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -40,7 +45,10 @@ fn orf_extract_cds_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/extract_cds.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/extract_cds.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -60,7 +68,10 @@ fn orf_add_cds_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/add_cds.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/add_cds.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -76,7 +87,10 @@ fn filter_primary_orf_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/primary_orf.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/primary_orf.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -92,7 +106,10 @@ fn orf_blastp_parse_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/blastp_parse.txt")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/blastp_parse.txt"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -108,6 +125,9 @@ fn orf_seek_matches_golden() {
         .status()
         .unwrap()
         .success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p6/orf_seek.fa")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p6/orf_seek.fa"))
+    );
     let _ = std::fs::remove_file(out);
 }

@@ -30,8 +30,7 @@ pub fn read_metrics(read_seq_len: i64, e: &ErrorRate, method: IdentMethod) -> Re
     let seq_length = read_seq_len + e.h_count;
     let seq_length_f = seq_length as f64;
 
-    let percent_coverage =
-        (seq_length - e.h_count - e.s_count) as f64 / seq_length_f * 100.0;
+    let percent_coverage = (seq_length - e.h_count - e.s_count) as f64 / seq_length_f * 100.0;
 
     let percent_identity = match method {
         IdentMethod::IdentCov => {

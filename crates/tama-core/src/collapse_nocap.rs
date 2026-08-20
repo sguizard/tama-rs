@@ -168,7 +168,12 @@ pub fn simplify_gene_nocap(trans: &[Transcript], p: &CollapseParams) -> Vec<Vec<
                         if tg.same_group(&h, &prey) {
                             continue;
                         }
-                        let flag = compare_transcripts(&trans[idx[h.as_str()]], &trans[idx[prey.as_str()]], p, strand);
+                        let flag = compare_transcripts(
+                            &trans[idx[h.as_str()]],
+                            &trans[idx[prey.as_str()]],
+                            p,
+                            strand,
+                        );
                         if flag == CompFlag::SameThreePrimeSameExons {
                             tg.add_a_to_b_group(&prey, &h);
                             unsearched.insert(prey);
@@ -189,7 +194,12 @@ pub fn simplify_gene_nocap(trans: &[Transcript], p: &CollapseParams) -> Vec<Vec<
                         if tg.same_group(&h, &prey) {
                             continue;
                         }
-                        let flag = compare_transcripts(&trans[idx[h.as_str()]], &trans[idx[prey.as_str()]], p, strand);
+                        let flag = compare_transcripts(
+                            &trans[idx[h.as_str()]],
+                            &trans[idx[prey.as_str()]],
+                            p,
+                            strand,
+                        );
                         if flag == CompFlag::SameThreePrimeDiffExons {
                             tg.add_a_to_b_group(&prey, &h);
                             sub_length.insert(prey);

@@ -73,10 +73,19 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::Seek { fasta, output } => seek(&fasta, &output),
         Cmd::ExtractCds { bed, stop, output } => extract_cds(&bed, &stop, &output),
-        Cmd::AddCds { parse, bed, fasta, output, stop, sj_dist } => {
-            add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist)
-        }
-        Cmd::BlastpParse { blastp, output, format } => blastp_parse(&blastp, &output, &format),
+        Cmd::AddCds {
+            parse,
+            bed,
+            fasta,
+            output,
+            stop,
+            sj_dist,
+        } => add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist),
+        Cmd::BlastpParse {
+            blastp,
+            output,
+            format,
+        } => blastp_parse(&blastp, &output, &format),
     }
 }
 
@@ -124,12 +133,26 @@ impl Orf {
     fn new(seq: String, a_start: i64, a_end: i64, n_start: i64, n_end: i64, frame: i64) -> Orf {
         let start_codon = seq.chars().next().unwrap_or(' ');
         let length = seq.chars().count();
-        Orf { seq, a_start, a_end, n_start, n_end, frame, length, start_codon }
+        Orf {
+            seq,
+            a_start,
+            a_end,
+            n_start,
+            n_end,
+            frame,
+            length,
+            start_codon,
+        }
     }
     fn orf_id(&self) -> String {
         format!(
             "{}_{}_{}_{}_{}_{}_{}",
-            self.frame, self.a_start, self.a_end, self.n_start, self.n_end, self.length,
+            self.frame,
+            self.a_start,
+            self.a_end,
+            self.n_start,
+            self.n_end,
+            self.length,
             self.start_codon
         )
     }
@@ -250,7 +273,11 @@ fn add_cds(
     for line in read_lines(bed)? {
         let mut cols: Vec<String> = line.split('\t').map(String::from).collect();
         let trans_id = cols[3].clone();
-        let block_list: Vec<i64> = cols[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let block_list: Vec<i64> = cols[10]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
 
         let td = match trans_dict.get(&trans_id) {
             None => {
@@ -274,7 +301,11 @@ fn add_cds(
         }
 
         let trans_start: i64 = cols[1].parse()?;
-        let block_start_list: Vec<i64> = cols[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let block_start_list: Vec<i64> = cols[11]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
         let strand = cols[5].chars().next().unwrap_or('+');
         let prot_start: i64 = td[4].parse::<i64>()? - 1;
         let nuc_start: i64 = td[2].parse()?;
@@ -282,7 +313,11 @@ fn add_cds(
         let tlen = trans_len[&trans_id];
 
         let (cds_rel_start, cds_rel_end) = if strand == '+' {
-            let end = if stop == "include_stop" { nuc_end + 1 } else { nuc_end - 2 };
+            let end = if stop == "include_stop" {
+                nuc_end + 1
+            } else {
+                nuc_end - 2
+            };
             (nuc_start, end)
         } else {
             let start = if stop == "include_stop" {
@@ -332,8 +367,15 @@ fn add_cds(
 
         cols[6] = cds_coord_start.to_string();
         cols[7] = cds_coord_end.to_string();
-        let degrade = if prot_start == 0 { "5prime_degrade" } else { "full_length" };
-        cols[3] = format!("{};{prot_id};{degrade};{match_flag};{nmd_flag};{frame}", cols[3]);
+        let degrade = if prot_start == 0 {
+            "5prime_degrade"
+        } else {
+            "full_length"
+        };
+        cols[3] = format!(
+            "{};{prot_id};{degrade};{match_flag};{nmd_flag};{frame}",
+            cols[3]
+        );
         writeln!(out, "{}", cols.join("\t"))?;
     }
     Ok(())
@@ -351,11 +393,23 @@ fn extract_cds(bed: &std::path::Path, stop: &str, output: &std::path::Path) -> a
         }
         let t0: i64 = cols[1].parse()?;
         let strand = cols[5].chars().next().unwrap_or('+');
-        let sizes: Vec<i64> = cols[10].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
-        let rels: Vec<i64> = cols[11].split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        let sizes: Vec<i64> = cols[10]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
+        let rels: Vec<i64> = cols[11]
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
         // 0-based exon coords, end inclusive (calc_end: start + block - 1)
         let e_starts: Vec<i64> = rels.iter().map(|r| t0 + r).collect();
-        let e_ends: Vec<i64> = e_starts.iter().zip(&sizes).map(|(s, z)| s + z - 1).collect();
+        let e_ends: Vec<i64> = e_starts
+            .iter()
+            .zip(&sizes)
+            .map(|(s, z)| s + z - 1)
+            .collect();
 
         // full spliced coordinate list + index lookup
         let mut coord_list: Vec<i64> = Vec::new();
@@ -448,7 +502,11 @@ struct Hit {
 
 /// Parse BLASTP pairwise output and pick the best ORF/hit per transcript.
 /// Ports `tama_orf_blastp_parser`.
-fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str) -> anyhow::Result<()> {
+fn blastp_parse(
+    blastp: &std::path::Path,
+    output: &std::path::Path,
+    format: &str,
+) -> anyhow::Result<()> {
     use std::io::BufRead;
 
     let mut query_dict: IndexMap<String, Vec<Hit>> = IndexMap::new();
@@ -498,8 +556,12 @@ fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str
                 } else if format == "ensembl" {
                     let (mut g, mut t) = (String::new(), String::new());
                     for f in sn.split_whitespace() {
-                        if let Some(v) = f.strip_prefix("gene:") { g = v.to_string(); }
-                        if let Some(v) = f.strip_prefix("transcript:") { t = v.to_string(); }
+                        if let Some(v) = f.strip_prefix("gene:") {
+                            g = v.to_string();
+                        }
+                        if let Some(v) = f.strip_prefix("transcript:") {
+                            t = v.to_string();
+                        }
                     }
                     sn = format!("{g},{t}");
                 }
@@ -521,11 +583,21 @@ fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str
                     q_len = rest.trim().parse().unwrap_or(0);
                 }
                 query_dict.entry(q_name.clone()).or_default();
-                let trans_id = q_name.split(':').next().unwrap_or(&q_name).split('(').next().unwrap_or(&q_name).to_string();
+                let trans_id = q_name
+                    .split(':')
+                    .next()
+                    .unwrap_or(&q_name)
+                    .split('(')
+                    .next()
+                    .unwrap_or(&q_name)
+                    .to_string();
                 if !trans_id_dict.contains_key(&trans_id) {
                     trans_id_list.push(trans_id.clone());
                 }
-                trans_id_dict.entry(trans_id).or_default().insert(q_name.clone(), ());
+                trans_id_dict
+                    .entry(trans_id)
+                    .or_default()
+                    .insert(q_name.clone(), ());
                 query_id_line_flag = 0;
             } else if !line.is_empty() {
                 q_name.push_str(&line);
@@ -564,8 +636,12 @@ fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str
             continue;
         }
 
-        if !(line.starts_with(" S") || line.starts_with(" I") || line.starts_with("Query")
-            || line.starts_with("Sbjct") || line.starts_with("Length") || line.starts_with('>'))
+        if !(line.starts_with(" S")
+            || line.starts_with(" I")
+            || line.starts_with("Query")
+            || line.starts_with("Sbjct")
+            || line.starts_with("Length")
+            || line.starts_with('>'))
         {
             continue;
         }
@@ -653,7 +729,8 @@ fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str
             let q_frame = parts[n - 7];
             let tid = parts[0].split('(').next().unwrap_or(parts[0]);
             if q_frame == "missing_nucleotides" {
-                best_line = format!("{tid}\tno_frame\t-1\t-1\t-1\t-1\tnone\tmissing_nucleotides\t-1\t-1");
+                best_line =
+                    format!("{tid}\tno_frame\t-1\t-1\t-1\t-1\tnone\tmissing_nucleotides\t-1\t-1");
                 break;
             }
             let q_nuc_start = parts[n - 6];
@@ -694,7 +771,11 @@ fn blastp_parse(blastp: &std::path::Path, output: &std::path::Path, format: &str
                     let tid = parts[0].split('(').next().unwrap_or(parts[0]);
                     chosen = format!(
                         "{tid}\t{}\t{}\t{}\t{}\t{}\tnone\tno_hit\t0\t0",
-                        parts[n - 7], parts[n - 6], parts[n - 5], parts[n - 4], parts[n - 3]
+                        parts[n - 7],
+                        parts[n - 6],
+                        parts[n - 5],
+                        parts[n - 4],
+                        parts[n - 3]
                     );
                 }
             }
@@ -724,7 +805,10 @@ fn load_fasta(path: &std::path::Path) -> anyhow::Result<Vec<(String, String)>> {
     for line in reader.lines() {
         let line = line?;
         if let Some(h) = line.strip_prefix('>') {
-            out.push((h.split_whitespace().next().unwrap_or("").to_string(), String::new()));
+            out.push((
+                h.split_whitespace().next().unwrap_or("").to_string(),
+                String::new(),
+            ));
         } else if let Some(last) = out.last_mut() {
             last.1.push_str(line.trim_end());
         }
@@ -768,7 +852,12 @@ fn seek(fasta: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()>
             writeln!(
                 out,
                 ">{trans_id}:F{}:{}:{}:{}:{}:{}:{}",
-                orf.frame, orf.n_start, orf.n_end, orf.a_start, orf.a_end, orf.length,
+                orf.frame,
+                orf.n_start,
+                orf.n_end,
+                orf.a_start,
+                orf.a_end,
+                orf.length,
                 orf.start_codon
             )?;
             writeln!(out, "{}", orf.seq)?;

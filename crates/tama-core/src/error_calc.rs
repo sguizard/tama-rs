@@ -446,9 +446,11 @@ mod tests {
         let genome = b"ACGTACGTACGT";
         let query = b"ACGT";
         let mut var = Variation::default();
-        let r =
-            calc_error_rate(1, "4M", query, genome, "chr", "r1", 10, &mut var).unwrap();
-        assert_eq!((r.h_count, r.s_count, r.i_count, r.d_count, r.mis_count), (0, 0, 0, 0, 0));
+        let r = calc_error_rate(1, "4M", query, genome, "chr", "r1", 10, &mut var).unwrap();
+        assert_eq!(
+            (r.h_count, r.s_count, r.i_count, r.d_count, r.mis_count),
+            (0, 0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -459,8 +461,7 @@ mod tests {
         let query = b"ACTGA";
         let mut var = Variation::default();
         // CIGAR: 2M1I2M  query: AC | T | GA ; genome: AC .. GT
-        let r =
-            calc_error_rate(1, "2M1I2M", query, genome, "chr", "r1", 10, &mut var).unwrap();
+        let r = calc_error_rate(1, "2M1I2M", query, genome, "chr", "r1", 10, &mut var).unwrap();
         assert_eq!(r.i_count, 1);
         assert_eq!(r.mis_count, 1); // A vs T at genome pos 4 (0-based 3)
     }
@@ -470,8 +471,7 @@ mod tests {
         let genome = b"ACGTACGTACGT";
         let query = b"NNACGT"; // 2S then 4M
         let mut var = Variation::default();
-        let r =
-            calc_error_rate(1, "2S4M", query, genome, "chr", "r1", 10, &mut var).unwrap();
+        let r = calc_error_rate(1, "2S4M", query, genome, "chr", "r1", 10, &mut var).unwrap();
         assert_eq!(r.s_count, 2);
         assert_eq!(r.mis_count, 0);
     }

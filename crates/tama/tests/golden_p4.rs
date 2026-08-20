@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 fn tama() -> Command {
@@ -30,7 +32,10 @@ fn bed2gtf_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/bed2gtf.gtf")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/bed2gtf.gtf"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -45,7 +50,10 @@ fn gtf2bed_stringtie_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/gtf2bed_stringtie.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/gtf2bed_stringtie.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -65,12 +73,20 @@ fn gtf2bed_case(source: &str, input: &str, golden: &str) {
 
 #[test]
 fn gtf2bed_ensembl_matches_golden() {
-    gtf2bed_case("ensembl", "test_data/p4/ensembl.gtf", "tests/golden_p4/gtf2bed_ensembl.bed");
+    gtf2bed_case(
+        "ensembl",
+        "test_data/p4/ensembl.gtf",
+        "tests/golden_p4/gtf2bed_ensembl.bed",
+    );
 }
 
 #[test]
 fn gtf2bed_ncbi_matches_golden() {
-    gtf2bed_case("ncbi", "test_data/p4/ncbi.gtf", "tests/golden_p4/gtf2bed_ncbi.bed");
+    gtf2bed_case(
+        "ncbi",
+        "test_data/p4/ncbi.gtf",
+        "tests/golden_p4/gtf2bed_ncbi.bed",
+    );
 }
 
 #[test]
@@ -84,7 +100,10 @@ fn gff2bed_cupcake_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/gff2bed_cupcake.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/gff2bed_cupcake.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -99,7 +118,10 @@ fn gff2bed_liftoff_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/gff2bed_liftoff.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/gff2bed_liftoff.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -114,7 +136,10 @@ fn fastq2fasta_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/fastq2fasta.fa")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/fastq2fasta.fa"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -130,7 +155,10 @@ fn id_filter_matches_golden() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(read(out.clone()), read(r.join("tests/golden_p4/id_filter.bed")));
+    assert_eq!(
+        read(out.clone()),
+        read(r.join("tests/golden_p4/id_filter.bed"))
+    );
     let _ = std::fs::remove_file(out);
 }
 
@@ -193,7 +221,11 @@ fn support_merge_collapse_matches_golden() {
 
     // filelist: filename<TAB>prefix<TAB>dir/
     let filelist = dir.join("filelist.txt");
-    std::fs::write(&filelist, format!("mc_support.txt\ttestmerge\t{}/\n", dir.display())).unwrap();
+    std::fs::write(
+        &filelist,
+        format!("mc_support.txt\ttestmerge\t{}/\n", dir.display()),
+    )
+    .unwrap();
 
     let out = dir.join("out.txt");
     assert!(tama()
@@ -213,10 +245,13 @@ fn support_merge_collapse_matches_golden() {
             .map(|l| {
                 let c: Vec<&str> = l.split('\t').collect();
                 let head = c[..5.min(c.len())].join("\t");
-                let mut st: Vec<&str> = c.get(5).map(|x| x.split(',').collect()).unwrap_or_default();
+                let mut st: Vec<&str> =
+                    c.get(5).map(|x| x.split(',').collect()).unwrap_or_default();
                 st.sort_unstable();
-                let mut rd: Vec<&str> =
-                    c.get(6).map(|x| x.split([';', ',']).collect()).unwrap_or_default();
+                let mut rd: Vec<&str> = c
+                    .get(6)
+                    .map(|x| x.split([';', ',']).collect())
+                    .unwrap_or_default();
                 rd.sort_unstable();
                 format!("{head}\t{}\t{}", st.join(","), rd.join(","))
             })
@@ -265,7 +300,9 @@ fn support_collapse_cluster_matches_golden() {
     };
     assert_eq!(
         norm(&read(out.clone())),
-        norm(&read(r.join("tests/golden_p4/support_collapse_cluster.txt")))
+        norm(&read(
+            r.join("tests/golden_p4/support_collapse_cluster.txt")
+        ))
     );
     let _ = std::fs::remove_file(out);
 }

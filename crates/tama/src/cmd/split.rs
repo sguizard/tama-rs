@@ -35,8 +35,16 @@ enum Cmd {
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
-        Cmd::Fasta { fasta, prefix, split_number } => split_fasta(&fasta, &prefix, split_number),
-        Cmd::Sam { sam, num_files, prefix } => split_sam(&sam, num_files, &prefix),
+        Cmd::Fasta {
+            fasta,
+            prefix,
+            split_number,
+        } => split_fasta(&fasta, &prefix, split_number),
+        Cmd::Sam {
+            sam,
+            num_files,
+            prefix,
+        } => split_sam(&sam, num_files, &prefix),
     }
 }
 
@@ -67,7 +75,9 @@ fn split_fasta(fasta: &std::path::Path, prefix: &str, split_number: usize) -> an
     for (i, rec) in records.iter().enumerate() {
         if i % split_size == 0 {
             split_index += 1;
-            out = Some(tama_io::create_writer(format!("{prefix}_{split_index}.fa"))?);
+            out = Some(tama_io::create_writer(format!(
+                "{prefix}_{split_index}.fa"
+            ))?);
         }
         let w = out.as_mut().unwrap();
         for item in rec {

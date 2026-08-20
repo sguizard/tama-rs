@@ -160,7 +160,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     }
 
     // ---- parse filelist ----
-    let filelist_dir = args.filelist.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let filelist_dir = args
+        .filelist
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
     let filelist = std::fs::read_to_string(&args.filelist)
         .with_context(|| format!("reading filelist {}", args.filelist.display()))?;
     // source -> (filename, seq_type, priority_rank)
@@ -180,13 +184,18 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         if seq_type == "no_cap" {
             bail!("no_cap merge sources are not implemented yet");
         }
-        let pr: Vec<i64> = prio.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        let pr: Vec<i64> = prio
+            .split(',')
+            .filter_map(|x| x.trim().parse().ok())
+            .collect();
         if pr.len() != 3 {
             bail!("priority rank must be start,junction,end: {prio:?}");
         }
-        sources
-            .entry(source_id.to_string())
-            .or_insert((filename.to_string(), seq_type.to_string(), (pr[0], pr[1], pr[2])));
+        sources.entry(source_id.to_string()).or_insert((
+            filename.to_string(),
+            seq_type.to_string(),
+            (pr[0], pr[1], pr[2]),
+        ));
     }
 
     // source colour (sorted sources -> 1..=10)
@@ -258,8 +267,14 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                 }
             } else {
                 total_gene_count = process_trans_group(
-                    &group, total_gene_count, &source_colour, &th,
-                    &mut out_bed, &mut out_merge, &mut out_trans, &mut out_gene,
+                    &group,
+                    total_gene_count,
+                    &source_colour,
+                    &th,
+                    &mut out_bed,
+                    &mut out_merge,
+                    &mut out_trans,
+                    &mut out_gene,
                 )?;
                 group = Vec::new();
                 for &te in &ends {
@@ -271,8 +286,14 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             }
             if si + 1 == num {
                 total_gene_count = process_trans_group(
-                    &group, total_gene_count, &source_colour, &th,
-                    &mut out_bed, &mut out_merge, &mut out_trans, &mut out_gene,
+                    &group,
+                    total_gene_count,
+                    &source_colour,
+                    &th,
+                    &mut out_bed,
+                    &mut out_merge,
+                    &mut out_trans,
+                    &mut out_gene,
                 )?;
             }
         }
@@ -510,15 +531,25 @@ fn collapse_transcripts(txs: &[MergeTx], th: &Thresholds) -> Collapsed {
             if i >= t.num_exons {
                 continue;
             }
-            let j = if strand == '+' { t.num_exons - 1 - i } else { i };
+            let j = if strand == '+' {
+                t.num_exons - 1 - i
+            } else {
+                i
+            };
             let (esp, eep) = exon_priorities(t, i, max_exon, strand);
             let es = t.exon_start_list[j];
             let ee = t.exon_end_list[j];
 
             *e_start_dict.entry(esp).or_default().entry(es).or_insert(0) += 1;
-            e_start_support.entry(es).or_default().insert(t.uniq_trans_id.clone());
+            e_start_support
+                .entry(es)
+                .or_default()
+                .insert(t.uniq_trans_id.clone());
             *e_end_dict.entry(eep).or_default().entry(ee).or_insert(0) += 1;
-            e_end_support.entry(ee).or_default().insert(t.uniq_trans_id.clone());
+            e_end_support
+                .entry(ee)
+                .or_default()
+                .insert(t.uniq_trans_id.clone());
         }
 
         let bsp = *e_start_dict.keys().next().unwrap();
@@ -563,7 +594,10 @@ fn collapse_transcripts(txs: &[MergeTx], th: &Thresholds) -> Collapsed {
         .iter()
         .map(|c| support_line(&e_start_support, *c))
         .collect();
-    let e_end_line: Vec<String> = end.iter().map(|c| support_line(&e_end_support, *c)).collect();
+    let e_end_line: Vec<String> = end
+        .iter()
+        .map(|c| support_line(&e_end_support, *c))
+        .collect();
 
     Collapsed {
         start,
@@ -661,8 +695,16 @@ fn exon_priorities(t: &MergeTx, i: usize, max_exon: usize, strand: char) -> (i64
 
 fn rgb_for(members: &[MergeTx], source_colour: &IndexMap<String, usize>) -> String {
     const RGB: [&str; 10] = [
-        "255,0,0", "255,100,0", "255,200,0", "200,255,0", "0,255,200", "0,200,255", "0,100,255",
-        "0,0,255", "100,0,255", "200,0,255",
+        "255,0,0",
+        "255,100,0",
+        "255,200,0",
+        "200,255,0",
+        "0,255,200",
+        "0,200,255",
+        "0,100,255",
+        "0,0,255",
+        "100,0,255",
+        "200,0,255",
     ];
     let srcs: IndexSet<&str> = members.iter().map(|m| m.source_id.as_str()).collect();
     if srcs.len() > 1 {
@@ -710,7 +752,12 @@ fn format_trans_report(m: &MergedTrans) -> String {
         }
     }
     sources.sort();
-    let join_i = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+    let join_i = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     [
         m.trans_id.clone(),
         m.members.len().to_string(),

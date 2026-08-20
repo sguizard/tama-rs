@@ -121,5 +121,8 @@ fn per_read_metrics_match_golden() {
         checked += 1;
     }
 
-    assert!(checked > 50, "expected to check many reads, only did {checked}");
+    assert!(
+        checked > 50,
+        "expected to check many reads, only did {checked}"
+    );
 }

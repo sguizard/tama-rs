@@ -409,7 +409,11 @@ pub fn collapse_transcripts(trans: &[Transcript], p: &CollapseParams) -> Collaps
             }
 
             if e_start != -1 {
-                *e_start_dict.entry(sp).or_default().entry(e_start).or_insert(0) += 1;
+                *e_start_dict
+                    .entry(sp)
+                    .or_default()
+                    .entry(e_start)
+                    .or_insert(0) += 1;
                 err_start
                     .entry(sp)
                     .or_default()

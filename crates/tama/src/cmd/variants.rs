@@ -82,7 +82,8 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
 
     let genome = tama_io::fasta::load_fasta(&args.fasta)
         .with_context(|| format!("loading genome {}", args.fasta.display()))?;
-    let records = read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
+    let records =
+        read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
 
     let p = &args.prefix;
     let mut out_read = tama_io::create_writer(format!("{p}_read.txt"))?;
@@ -92,7 +93,10 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
 
     writeln!(out_read, "read_id\tmapped_flag\taccept_flag\tpercent_coverage\tpercent_identity\terror_line<h;s;i;d;m>\tlength\tcigar")?;
     writeln!(out_strand, "read_id\tscaff_name\tstart_pos\tcigar\tstrands")?;
-    writeln!(out_variant, "scaffold\tposition\ttype\tref_allele\talt_allele\tcount\tcov_count\tcluster_list")?;
+    writeln!(
+        out_variant,
+        "scaffold\tposition\ttype\tref_allele\talt_allele\tcount\tcov_count\tcluster_list"
+    )?;
     writeln!(out_varcov, "positions\toverlap_clusters")?;
 
     let mut variation = Variation::default();
@@ -106,15 +110,27 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
             "forward_strand" => '+',
             "reverse_strand" => '-',
             _ => {
-                writeln!(out_read, "{}\t{}\t{}\tNA\tNA\tNA\tNA\tNA", rec.read_id, mflag, mflag)?;
+                writeln!(
+                    out_read,
+                    "{}\t{}\t{}\tNA\tNA\tNA\tNA\tNA",
+                    rec.read_id, mflag, mflag
+                )?;
                 continue;
             }
         };
         if let Some(xs) = rec.xs_strand {
             if strand == '+' && xs == '-' {
-                writeln!(out_strand, "{}\t{}\t{}\t{}\t+-", rec.read_id, rec.scaffold, rec.start_pos, rec.cigar)?;
+                writeln!(
+                    out_strand,
+                    "{}\t{}\t{}\t{}\t+-",
+                    rec.read_id, rec.scaffold, rec.start_pos, rec.cigar
+                )?;
             } else if strand == '-' && xs == '+' {
-                writeln!(out_strand, "{}\t{}\t{}\t{}\t-+", rec.read_id, rec.scaffold, rec.start_pos, rec.cigar)?;
+                writeln!(
+                    out_strand,
+                    "{}\t{}\t{}\t{}\t-+",
+                    rec.read_id, rec.scaffold, rec.start_pos, rec.cigar
+                )?;
             }
         }
 
@@ -125,17 +141,43 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
 
         // records variation + per-position coverage for every mapped read
         let er = calc_error_rate(
-            rec.start_pos, &rec.cigar, rec.seq.as_bytes(), genome_seq,
-            &rec.scaffold, &rec.read_id, args.sj_thresh, &mut variation,
+            rec.start_pos,
+            &rec.cigar,
+            rec.seq.as_bytes(),
+            genome_seq,
+            &rec.scaffold,
+            &rec.read_id,
+            args.sj_thresh,
+            &mut variation,
         )?;
         let tc = tama_core::cigar::trans_coordinates(rec.start_pos, &rec.cigar)?;
         let m = read_metrics(rec.seq.len() as i64, &er, ident_method);
 
         if m.percent_coverage < args.coverage || m.percent_identity < args.identity {
-            writeln!(out_read, "{}\t{}\tdiscarded\t{}\t{}\t{}\t{}\t{}", rec.read_id, mflag, round2(m.percent_coverage), round2(m.percent_identity), m.error_line, m.length, rec.cigar)?;
+            writeln!(
+                out_read,
+                "{}\t{}\tdiscarded\t{}\t{}\t{}\t{}\t{}",
+                rec.read_id,
+                mflag,
+                round2(m.percent_coverage),
+                round2(m.percent_identity),
+                m.error_line,
+                m.length,
+                rec.cigar
+            )?;
             continue;
         }
-        writeln!(out_read, "{}\t{}\taccepted\t{}\t{}\t{}\t{}\t{}", rec.read_id, mflag, round2(m.percent_coverage), round2(m.percent_identity), m.error_line, m.length, rec.cigar)?;
+        writeln!(
+            out_read,
+            "{}\t{}\taccepted\t{}\t{}\t{}\t{}\t{}",
+            rec.read_id,
+            mflag,
+            round2(m.percent_coverage),
+            round2(m.percent_identity),
+            m.error_line,
+            m.length,
+            rec.cigar
+        )?;
 
         if seen_scaffold.insert(rec.scaffold.clone()) {
             scaffold_order.push(rec.scaffold.clone());
@@ -165,7 +207,9 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
     // emit variants + varcov per scaffold (original mode)
     const VAR_TYPES: [char; 5] = ['H', 'S', 'M', 'I', 'D'];
     for scaffold in &scaffold_order {
-        let Some(pos_map) = variation.dict.get(scaffold) else { continue };
+        let Some(pos_map) = variation.dict.get(scaffold) else {
+            continue;
+        };
         let genome_seq = genome[scaffold].as_bytes();
         let cov_map = &variation.coverage[scaffold];
 
@@ -173,8 +217,10 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
         let mut cov_group: IndexMap<String, IndexSet<String>> = IndexMap::new();
 
         for (&var_pos, type_map) in pos_map {
-            let mut cov_reads: Vec<String> =
-                cov_map.get(&var_pos).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+            let mut cov_reads: Vec<String> = cov_map
+                .get(&var_pos)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
             cov_reads.sort();
             let var_coverage = cov_reads.len();
 
@@ -185,8 +231,14 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
 
             let mut accept_pos = false;
             for vt in VAR_TYPES {
-                let Some(seq_map) = type_map.get(&vt) else { continue };
-                let ref_allele = if vt == 'M' { default_ref.clone() } else { "NA".to_string() };
+                let Some(seq_map) = type_map.get(&vt) else {
+                    continue;
+                };
+                let ref_allele = if vt == 'M' {
+                    default_ref.clone()
+                } else {
+                    "NA".to_string()
+                };
                 for (alt_seq, reads) in seq_map {
                     let count = reads.len();
                     if count >= args.var_coverage {
@@ -201,7 +253,10 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
             }
             if accept_pos {
                 let cov_line = cov_reads.join(",");
-                cov_group.entry(cov_line).or_default().insert(format!("{scaffold}_{var_pos}"));
+                cov_group
+                    .entry(cov_line)
+                    .or_default()
+                    .insert(format!("{scaffold}_{var_pos}"));
             }
         }
 

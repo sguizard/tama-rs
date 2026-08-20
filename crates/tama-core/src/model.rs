@@ -159,7 +159,8 @@ impl BedTranscript {
 mod tests {
     use super::*;
 
-    const LINE: &str = "AADN04001032.1\t866\t2296\tG1;G1.1\t40\t+\t866\t2296\t255,0,0\t3\t100,50,80\t0,500,1350";
+    const LINE: &str =
+        "AADN04001032.1\t866\t2296\tG1;G1.1\t40\t+\t866\t2296\t255,0,0\t3\t100,50,80\t0,500,1350";
 
     #[test]
     fn round_trips() {

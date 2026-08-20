@@ -9,9 +9,7 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use indexmap::IndexMap;
 
-use tama_core::collapse::{
-    self, Cap, CollapseParams, CollapseResult, Ends, Merged, Transcript,
-};
+use tama_core::collapse::{self, Cap, CollapseParams, CollapseResult, Ends, Merged, Transcript};
 use tama_core::error_calc::{calc_error_rate, Variation};
 use tama_core::gene::{gene_group, GeneMember};
 use tama_core::metrics::{read_metrics, IdentMethod};
@@ -116,7 +114,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     let genome = tama_io::fasta::load_fasta(&args.fasta)
         .with_context(|| format!("loading genome {}", args.fasta.display()))?;
-    let records = read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
+    let records =
+        read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
 
     // ---- output writers ----
     let p = &args.prefix;
@@ -130,7 +129,10 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     writeln!(out_read, "read_id\tmapped_flag\taccept_flag\tpercent_coverage\tpercent_identity\terror_line<h;s;i;d;m>\tlength\tcigar")?;
     writeln!(out_trans_report, "transcript_id\tnum_clusters\thigh_coverage\tlow_coverage\thigh_quality_percent\tlow_quality_percent\tstart_wobble_list\tend_wobble_list\tcollapse_sj_start_err\tcollapse_sj_end_err\tcollapse_error_nuc")?;
-    writeln!(out_polya, "cluster_id\ttrans_id\tstrand\ta_percent\ta_count\tsequence")?;
+    writeln!(
+        out_polya,
+        "cluster_id\ttrans_id\tstrand\ta_percent\ta_count\tsequence"
+    )?;
     writeln!(out_strand, "read_id\tscaff_name\tstart_pos\tcigar\tstrands")?;
 
     // ---- per-read pass: error/coverage/identity, acceptance, poly-A ----
@@ -146,7 +148,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             "reverse_strand" => '-',
             _ => {
                 // unmapped / not_primary / chimeric
-                writeln!(out_read, "{}\t{}\t{}\tNA\tNA\tNA\tNA\tNA", rec.read_id, mflag, mflag)?;
+                writeln!(
+                    out_read,
+                    "{}\t{}\t{}\tNA\tNA\tNA\tNA\tNA",
+                    rec.read_id, mflag, mflag
+                )?;
                 n_discarded += 1;
                 continue;
             }
@@ -155,9 +161,17 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         // strand-check vs XS tag
         if let Some(xs) = rec.xs_strand {
             if strand == '+' && xs == '-' {
-                writeln!(out_strand, "{}\t{}\t{}\t{}\t+-", rec.read_id, rec.scaffold, rec.start_pos, rec.cigar)?;
+                writeln!(
+                    out_strand,
+                    "{}\t{}\t{}\t{}\t+-",
+                    rec.read_id, rec.scaffold, rec.start_pos, rec.cigar
+                )?;
             } else if strand == '-' && xs == '+' {
-                writeln!(out_strand, "{}\t{}\t{}\t{}\t-+", rec.read_id, rec.scaffold, rec.start_pos, rec.cigar)?;
+                writeln!(
+                    out_strand,
+                    "{}\t{}\t{}\t{}\t-+",
+                    rec.read_id, rec.scaffold, rec.start_pos, rec.cigar
+                )?;
             }
         }
 
@@ -183,8 +197,13 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             writeln!(
                 out_read,
                 "{}\t{}\tdiscarded\t{}\t{}\t{}\t{}\t{}",
-                rec.read_id, mflag, round2(m.percent_coverage), round2(m.percent_identity),
-                m.error_line, m.length, rec.cigar
+                rec.read_id,
+                mflag,
+                round2(m.percent_coverage),
+                round2(m.percent_identity),
+                m.error_line,
+                m.length,
+                rec.cigar
             )?;
             n_discarded += 1;
             continue;
@@ -193,15 +212,23 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         writeln!(
             out_read,
             "{}\t{}\taccepted\t{}\t{}\t{}\t{}\t{}",
-            rec.read_id, mflag, round2(m.percent_coverage), round2(m.percent_identity),
-            m.error_line, m.length, rec.cigar
+            rec.read_id,
+            mflag,
+            round2(m.percent_coverage),
+            round2(m.percent_identity),
+            m.error_line,
+            m.length,
+            rec.cigar
         )?;
         n_accepted += 1;
 
         let polya = detect_polya(genome_seq, strand, rec.start_pos, tc.end_pos, A_WINDOW);
 
         if accepted.contains_key(&rec.read_id) {
-            bail!("multi-mapped read {} — multimap handling not implemented yet", rec.read_id);
+            bail!(
+                "multi-mapped read {} — multimap handling not implemented yet",
+                rec.read_id
+            );
         }
         accepted.insert(
             rec.read_id.clone(),
@@ -283,19 +310,31 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                 report_trans_count += 1;
 
                 writeln!(out_bed, "{}", merged.format_bed_line())?;
-                writeln!(out_trans_report, "{}", format_trans_report(&merged, &accepted))?;
+                writeln!(
+                    out_trans_report,
+                    "{}",
+                    format_trans_report(&merged, &accepted)
+                )?;
 
                 for cid in &merged.merged_trans {
                     let rd = &accepted[cid.as_str()];
-                    writeln!(out_trans_read, "{}", read_bed_line(&rd.trans, &merged.trans_id))?;
+                    writeln!(
+                        out_trans_read,
+                        "{}",
+                        read_bed_line(&rd.trans, &merged.trans_id)
+                    )?;
 
                     let a_percent = rd.polya.a_percent * 100.0;
                     if a_percent > A_PERC_THRESH {
                         writeln!(
                             out_polya,
                             "{}\t{}\t{}\t{}\t{}\t{}",
-                            cid, merged.trans_id, rd.trans.strand,
-                            round2(a_percent), rd.polya.a_count, rd.polya.downstream_seq
+                            cid,
+                            merged.trans_id,
+                            rd.trans.strand,
+                            round2(a_percent),
+                            rd.polya.a_count,
+                            rd.polya.downstream_seq
                         )?;
                     }
                 }
@@ -368,10 +407,7 @@ fn position_groups(accepted: &IndexMap<String, ReadData>) -> anyhow::Result<Vec<
 }
 
 /// Gene-group a strand's reads, returning (gene_start, member ids) ordered by start.
-fn make_genes(
-    ids: &[&str],
-    accepted: &IndexMap<String, ReadData>,
-) -> Vec<(i64, Vec<String>)> {
+fn make_genes(ids: &[&str], accepted: &IndexMap<String, ReadData>) -> Vec<(i64, Vec<String>)> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -475,7 +511,12 @@ fn format_trans_report(m: &Merged, accepted: &IndexMap<String, ReadData>) -> Str
         }
     }
 
-    let join_i = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+    let join_i = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     let (mut sj_start, mut sj_end) = (
         m.collapse_sj_start_err_list.clone(),
         m.collapse_sj_end_err_list.clone(),

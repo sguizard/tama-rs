@@ -8,7 +8,9 @@ use tama_core::cigar::trans_coordinates;
 use tama_core::polya::detect_polya;
 
 fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 #[test]

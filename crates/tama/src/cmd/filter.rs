@@ -97,15 +97,42 @@ enum Cmd {
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::SingleRead {
-            bed, read, output, level, multi, source_support, read_support,
-        } => single_read(&bed, &read, &output, &level, &multi, source_support, read_support),
+            bed,
+            read,
+            output,
+            level,
+            multi,
+            source_support,
+            read_support,
+        } => single_read(
+            &bed,
+            &read,
+            &output,
+            &level,
+            &multi,
+            source_support,
+            read_support,
+        ),
         Cmd::PrimaryOrf { bed, output } => primary_orf(&bed, &output),
-        Cmd::Fragments { bed, output, wobble, ends_wobble, overlap_percent } => {
-            fragments(&bed, &output, wobble, ends_wobble, overlap_percent)
-        }
-        Cmd::Polya { bed, filelist, read, output, percent, level, support, multi } => {
-            polya(&bed, &filelist, &read, &output, percent, &level, &support, &multi)
-        }
+        Cmd::Fragments {
+            bed,
+            output,
+            wobble,
+            ends_wobble,
+            overlap_percent,
+        } => fragments(&bed, &output, wobble, ends_wobble, overlap_percent),
+        Cmd::Polya {
+            bed,
+            filelist,
+            read,
+            output,
+            percent,
+            level,
+            support,
+            multi,
+        } => polya(
+            &bed, &filelist, &read, &output, percent, &level, &support, &multi,
+        ),
     }
 }
 
@@ -135,7 +162,10 @@ fn single_read(
             let (src, reads) = src_read.split_once(':').unwrap_or((src_read, ""));
             let slot = smap.entry(src.to_string()).or_default();
             for r in reads.split(',') {
-                trans_reads.get_mut(&trans_id).unwrap().insert(r.to_string());
+                trans_reads
+                    .get_mut(&trans_id)
+                    .unwrap()
+                    .insert(r.to_string());
                 slot.insert(r.to_string());
             }
         }
@@ -154,7 +184,10 @@ fn single_read(
         if !gene_trans_list.contains_key(&gene_id) {
             gene_list.push(gene_id.clone());
         }
-        gene_trans_list.entry(gene_id).or_default().push(trans_id.clone());
+        gene_trans_list
+            .entry(gene_id)
+            .or_default()
+            .push(trans_id.clone());
         trans_exons.insert(trans_id.clone(), num_exons);
         trans_cols.insert(trans_id, cols);
     }
@@ -162,10 +195,16 @@ fn single_read(
     let mut out_bed = tama_io::create_writer(format!("{output_prefix}.bed"))?;
     let mut out_report = tama_io::create_writer(format!("{output_prefix}_singleton_report.txt"))?;
     let mut out_single = tama_io::create_writer(format!("{output_prefix}_singleton.bed"))?;
-    writeln!(out_report, "old_gene_id\told_trans_id\tsource_line\tnum_reads\tnew_gene_id\tnew_trans_id\tnum_exons")?;
+    writeln!(
+        out_report,
+        "old_gene_id\told_trans_id\tsource_line\tnum_reads\tnew_gene_id\tnew_trans_id\tnum_exons"
+    )?;
 
     let source_line = |t: &str| -> String {
-        source_reads.get(t).map(|m| m.keys().cloned().collect::<Vec<_>>().join(",")).unwrap_or_default()
+        source_reads
+            .get(t)
+            .map(|m| m.keys().cloned().collect::<Vec<_>>().join(","))
+            .unwrap_or_default()
     };
     let total_reads = |t: &str| -> usize { trans_reads.get(t).map(|s| s.len()).unwrap_or(0) };
     let num_sources = |t: &str| -> usize { source_reads.get(t).map(|m| m.len()).unwrap_or(0) };
@@ -226,7 +265,13 @@ fn single_read(
                     let mut cols = trans_cols[t].clone();
                     cols[3] = format!("{new_gene_id};{new_trans_id}");
                     writeln!(out_bed, "{}", cols.join("\t"))?;
-                    report_lines.push((format!("{gene_id}\t{t}\t{}\t{tr}\t{new_gene_id}\t{new_trans_id}\t{num_exons}", source_line(t)), false));
+                    report_lines.push((
+                        format!(
+                            "{gene_id}\t{t}\t{}\t{tr}\t{new_gene_id}\t{new_trans_id}\t{num_exons}",
+                            source_line(t)
+                        ),
+                        false,
+                    ));
                 } else {
                     writeln!(out_single, "{}", trans_cols[t].join("\t"))?;
                     report_lines.push((format!("{gene_id}\t{t}\t{}\t{tr}\t{new_gene_id}\tremoved_transcript\t{num_exons}", source_line(t)), true));
@@ -255,7 +300,11 @@ fn single_read(
                 let mut cols = trans_cols[t].clone();
                 cols[3] = format!("{new_gene_id};{new_trans_id}");
                 writeln!(out_bed, "{}", cols.join("\t"))?;
-                writeln!(out_report, "{gene_id}\t{t}\t{}\t{tr}\t{new_gene_id}\t{new_trans_id}\t{num_exons}", source_line(t))?;
+                writeln!(
+                    out_report,
+                    "{gene_id}\t{t}\t{}\t{tr}\t{new_gene_id}\t{new_trans_id}\t{num_exons}",
+                    source_line(t)
+                )?;
             }
         } else {
             bail!("invalid -l level {level:?}");
@@ -296,14 +345,22 @@ fn primary_orf(bed: &std::path::Path, output: &std::path::Path) -> anyhow::Resul
         if !genes.contains_key(&gene_id) {
             gene_order.push(gene_id.clone());
         }
-        genes.entry(gene_id).or_default().insert(trans_id, (line.clone(), score, trans_length));
+        genes
+            .entry(gene_id)
+            .or_default()
+            .insert(trans_id, (line.clone(), score, trans_length));
     }
 
     let mut out = tama_io::create_writer(output)?;
     for gene_id in &gene_order {
         let trans = &genes[gene_id];
         let high_score = trans.values().map(|t| t.1).max().unwrap();
-        let longest = trans.values().filter(|t| t.1 == high_score).map(|t| t.2).max().unwrap();
+        let longest = trans
+            .values()
+            .filter(|t| t.1 == high_score)
+            .map(|t| t.2)
+            .max()
+            .unwrap();
         // among highest-score, longest, pick the alphabetically-first trans id
         let mut best_ids: Vec<&String> = trans
             .iter()
@@ -584,8 +641,11 @@ fn fragments(
     for gene_id in &gene_list {
         let txs = gene_trans.get_mut(gene_id).unwrap();
         let n = txs.len();
-        let id_to_idx: IndexMap<String, usize> =
-            txs.iter().enumerate().map(|(i, t)| (t.trans_id.clone(), i)).collect();
+        let id_to_idx: IndexMap<String, usize> = txs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.trans_id.clone(), i))
+            .collect();
         let mut removed: std::collections::HashSet<usize> = Default::default();
 
         for ai in 0..n {
@@ -639,7 +699,10 @@ fn read_support_levels(path: &std::path::Path) -> anyhow::Result<SupportMaps> {
             let (src, reads) = src_read.split_once(':').unwrap_or((src_read, ""));
             let slot = smap.entry(src.to_string()).or_default();
             for r in reads.split(',') {
-                trans_reads.get_mut(&trans_id).unwrap().insert(r.to_string());
+                trans_reads
+                    .get_mut(&trans_id)
+                    .unwrap()
+                    .insert(r.to_string());
                 slot.insert(r.to_string());
             }
         }
@@ -693,7 +756,10 @@ fn polya(
         if !gene_trans_list.contains_key(&gene_id) {
             gene_list.push(gene_id.clone());
         }
-        gene_trans_list.entry(gene_id).or_default().push(trans_id.clone());
+        gene_trans_list
+            .entry(gene_id)
+            .or_default()
+            .push(trans_id.clone());
         trans_exons.insert(trans_id.clone(), cols[9].parse()?);
         trans_cols.insert(trans_id, cols);
     }
@@ -702,8 +768,14 @@ fn polya(
     let mut out_report = tama_io::create_writer(format!("{output_prefix}_polya_report.txt"))?;
     let mut out_polya = tama_io::create_writer(format!("{output_prefix}_trash_polya.bed"))?;
     let mut out_support = tama_io::create_writer(format!("{output_prefix}_polya_support.txt"))?;
-    writeln!(out_report, "old_gene_id\told_trans_id\tsource_line\tnum_reads\tnew_gene_id\tnew_trans_id\tnum_exons")?;
-    writeln!(out_support, "trans_id\tsource\tread_id\tsource_trans_id\tstrand\tpercent_polya\ta_count\tpolya_seq")?;
+    writeln!(
+        out_report,
+        "old_gene_id\told_trans_id\tsource_line\tnum_reads\tnew_gene_id\tnew_trans_id\tnum_exons"
+    )?;
+    writeln!(
+        out_support,
+        "trans_id\tsource\tread_id\tsource_trans_id\tstrand\tpercent_polya\ta_count\tpolya_seq"
+    )?;
 
     let mut new_gene_num = 0usize;
 
@@ -722,14 +794,20 @@ fn polya(
             if let Some(sm) = merge_source_read.get(trans_id) {
                 for (src, reads) in sm {
                     for r in reads {
-                        trans_reads_here.entry(trans_id.clone()).or_default().insert(r.clone());
+                        trans_reads_here
+                            .entry(trans_id.clone())
+                            .or_default()
+                            .insert(r.clone());
                         read_source.entry(r.clone()).or_insert_with(|| src.clone());
                         if let Some(fields) = source_polya.get(src).and_then(|m| m.get(r)) {
                             let pct: f64 = fields[3].parse().unwrap_or(0.0);
                             if pct >= threshold {
                                 polya_count += 1;
                                 polya_reads.insert(r.clone());
-                                trans_read_polya.entry(trans_id.clone()).or_default().insert(r.clone(), fields.clone());
+                                trans_read_polya
+                                    .entry(trans_id.clone())
+                                    .or_default()
+                                    .insert(r.clone(), fields.clone());
                             }
                         }
                     }
@@ -746,7 +824,10 @@ fn polya(
             .get(last_trans)
             .map(|m| m.keys().cloned().collect::<Vec<_>>().join(","))
             .unwrap_or_default();
-        let leftover_total_reads = merge_trans_read.get(last_trans).map(|s| s.len()).unwrap_or(0);
+        let leftover_total_reads = merge_trans_read
+            .get(last_trans)
+            .map(|s| s.len())
+            .unwrap_or(0);
 
         let mut keep: IndexSet<String> = IndexSet::new();
         let mut remove: IndexSet<String> = IndexSet::new();

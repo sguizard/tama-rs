@@ -103,7 +103,11 @@ mod tests {
     use super::*;
 
     fn m<'a>(id: &'a str, s: &'a [i64], e: &'a [i64]) -> GeneMember<'a> {
-        GeneMember { id, exon_starts: s, exon_ends: e }
+        GeneMember {
+            id,
+            exon_starts: s,
+            exon_ends: e,
+        }
     }
 
     #[test]

@@ -11,7 +11,9 @@
 use std::path::PathBuf;
 
 fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 fn sorted_lines(s: &str) -> Vec<&str> {
@@ -61,10 +63,18 @@ fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
         "[{cap_flag}] .bed must match the original exactly (order + IDs)"
     );
 
-    for name in ["collapse_read.txt", "collapse_polya.txt", "collapse_trans_read.bed"] {
+    for name in [
+        "collapse_read.txt",
+        "collapse_polya.txt",
+        "collapse_trans_read.bed",
+    ] {
         let mine = read(out_dir.join(name));
         let gold = read(golden.join(name));
-        assert_eq!(sorted_lines(&mine), sorted_lines(&gold), "[{cap_flag}] {name}");
+        assert_eq!(
+            sorted_lines(&mine),
+            sorted_lines(&gold),
+            "[{cap_flag}] {name}"
+        );
     }
 
     assert_eq!(
