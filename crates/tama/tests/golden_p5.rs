@@ -114,6 +114,29 @@ fn filter_single_read_matches_golden() {
 }
 
 #[test]
+fn filter_fragments_matches_golden() {
+    let r = root();
+    let dir = std::env::temp_dir().join(format!("p5_frag_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prefix = dir.join("out");
+    assert!(tama()
+        .args(["filter", "fragments", "-f"])
+        .arg(r.join("tests/golden_nocap/collapse.bed"))
+        .arg("-o")
+        .arg(&prefix)
+        .status()
+        .unwrap()
+        .success());
+    let p = prefix.display();
+    assert_eq!(read(PathBuf::from(format!("{p}.bed"))), read(r.join("tests/golden_p5/fragments.bed")));
+    assert_eq!(
+        read(PathBuf::from(format!("{p}_discarded.txt"))),
+        read(r.join("tests/golden_p5/fragments_discarded.txt"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn stats_degradation_matches_golden() {
     let r = root();
     let out = std::env::temp_dir().join(format!("p5_deg_{}.txt", std::process::id()));

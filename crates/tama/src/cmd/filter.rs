@@ -17,7 +17,23 @@ enum Cmd {
     /// Keep primary transcripts by ORF. (tama_filter_primary_transcripts_orf)
     PrimaryOrf,
     /// Remove fragment models. (tama_remove_fragment_models)
-    Fragments,
+    Fragments {
+        /// BED file. (`-f`)
+        #[arg(short = 'f', long)]
+        bed: std::path::PathBuf,
+        /// Output prefix. (`-o`)
+        #[arg(short = 'o', long)]
+        output: String,
+        /// Exon/splice-junction wobble threshold. (`-m`)
+        #[arg(short = 'm', long, default_value_t = 10)]
+        wobble: i64,
+        /// Transcript ends wobble threshold. (`-e`)
+        #[arg(short = 'e', long, default_value_t = 500)]
+        ends_wobble: i64,
+        /// Single-exon overlap percent threshold. (`-s`)
+        #[arg(short = 's', long, default_value_t = 20)]
+        overlap_percent: i64,
+    },
     /// Remove poly-A models by level. (tama_remove_polya_models_levels)
     Polya,
     /// Remove single-read models by level. (tama_remove_single_read_models_levels)
@@ -52,7 +68,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             bed, read, output, level, multi, source_support, read_support,
         } => single_read(&bed, &read, &output, &level, &multi, source_support, read_support),
         Cmd::PrimaryOrf => Err(super::not_implemented("filter primary-orf")),
-        Cmd::Fragments => Err(super::not_implemented("filter fragments")),
+        Cmd::Fragments { bed, output, wobble, ends_wobble, overlap_percent } => {
+            fragments(&bed, &output, wobble, ends_wobble, overlap_percent)
+        }
         Cmd::Polya => Err(super::not_implemented("filter polya")),
     }
 }
@@ -207,6 +225,307 @@ fn single_read(
             }
         } else {
             bail!("invalid -l level {level:?}");
+        }
+    }
+    Ok(())
+}
+
+/// A transcript for fragment filtering (mutable exon bounds during absorption).
+#[derive(Clone)]
+struct FragTx {
+    scaffold: String,
+    trans_start: i64,
+    trans_end: i64,
+    gene_id: String,
+    trans_id: String,
+    strand: char,
+    num_exons: usize,
+    exon_start_list: Vec<i64>,
+    exon_end_list: Vec<i64>,
+}
+
+impl FragTx {
+    fn start(&self) -> i64 {
+        self.exon_start_list[0]
+    }
+    fn end(&self) -> i64 {
+        *self.exon_end_list.last().unwrap()
+    }
+    fn length(&self) -> i64 {
+        self.end() - self.start()
+    }
+    fn format_bed_line(&self) -> String {
+        let t_start = self.trans_start.min(self.start());
+        let t_end = self.trans_end.max(self.end());
+        let (mut blocks, mut rel) = (String::new(), String::new());
+        for k in 0..self.num_exons {
+            if k > 0 {
+                blocks.push(',');
+                rel.push(',');
+            }
+            blocks.push_str(&(self.exon_end_list[k] - self.exon_start_list[k]).to_string());
+            rel.push_str(&(self.exon_start_list[k] - t_start).to_string());
+        }
+        format!(
+            "{}\t{t_start}\t{t_end}\t{};{}\t40\t{}\t{t_start}\t{t_end}\t255,0,0\t{}\t{blocks}\t{rel}",
+            self.scaffold, self.gene_id, self.trans_id, self.strand, self.num_exons
+        )
+    }
+}
+
+/// Compare two transcripts for fragment absorption. Faithful port of
+/// `compare_absorb_transcripts` (tama_cds/tama_id defaults). Returns
+/// `Some((long_is_a, new_start0, new_end_last))` when `b`/`a` is a fragment of
+/// the other, with the extended bounds to apply to the long model.
+fn compare_absorb(
+    a: &FragTx,
+    b: &FragTx,
+    wob: i64,
+    ends_wob: i64,
+    ovl_pct: i64,
+) -> Option<(bool, i64, i64)> {
+    let (a_ne, b_ne) = (a.num_exons, b.num_exons);
+    let long_is_a = if a_ne == b_ne {
+        if a.length() > b.length() {
+            true
+        } else if a.length() < b.length() {
+            false
+        } else {
+            a.start() <= b.start()
+        }
+    } else {
+        a_ne > b_ne
+    };
+    let (long, short) = if long_is_a { (a, b) } else { (b, a) };
+    let (long_ne, short_ne) = (long.num_exons, short.num_exons);
+
+    let mut new_start0 = long.start();
+    let mut new_end_last = long.end();
+    let mut matched;
+
+    if long_ne == 1 && short_ne == 1 {
+        let overlap = if long.start() <= short.start() {
+            long.end() - short.start()
+        } else {
+            short.end() - long.start()
+        };
+        if overlap < 0 {
+            return None;
+        }
+        let long_pct = overlap * 100 / long.length();
+        let short_pct = overlap * 100 / short.length();
+        if long_pct > ovl_pct || short_pct > ovl_pct {
+            matched = true;
+            new_start0 = long.start().min(short.start());
+            new_end_last = long.end().max(short.end());
+        } else {
+            return None;
+        }
+    } else if short_ne == 1 {
+        matched = false;
+        for ei in 0..long_ne {
+            let this_start = long.exon_start_list[ei];
+            let this_end = long.exon_end_list[ei];
+            if short.start() < this_end && short.end() > this_start {
+                let start_wobble = this_start - short.start();
+                let end_wobble = short.end() - this_end;
+                if ei == 0 {
+                    if start_wobble < ends_wob && end_wobble < wob {
+                        matched = true;
+                        if start_wobble > 0 {
+                            new_start0 = short.start();
+                        }
+                    }
+                } else if ei == long_ne - 1 {
+                    if start_wobble < wob && end_wobble < ends_wob {
+                        matched = true;
+                        if end_wobble > 0 {
+                            new_end_last = short.end();
+                        }
+                    }
+                } else if start_wobble < wob && end_wobble < wob {
+                    matched = true;
+                }
+            }
+        }
+        if !matched {
+            return None;
+        }
+    } else {
+        // both multi-exon: pairwise splice-junction matching
+        let mut ls: std::collections::BTreeSet<usize> = Default::default();
+        let mut le: std::collections::BTreeSet<usize> = Default::default();
+        let mut ss: std::collections::BTreeSet<usize> = Default::default();
+        let mut se: std::collections::BTreeSet<usize> = Default::default();
+        for i in 0..long_ne {
+            for j in 0..short_ne {
+                let (lst, let_) = (long.exon_start_list[i], long.exon_end_list[i]);
+                let (sst, set_) = (short.exon_start_list[j], short.exon_end_list[j]);
+                if lst <= set_ && let_ >= sst {
+                    let (sw, ew, sw_th, ew_th, ew_abs);
+                    if i == 0 && j == 0 {
+                        sw = lst - sst;
+                        sw_th = ends_wob;
+                        ew_abs = true;
+                        ew = (set_ - let_).abs();
+                        ew_th = wob;
+                    } else if i > 0 && j == 0 {
+                        sw = lst - sst;
+                        sw_th = wob;
+                        ew_abs = true;
+                        ew = (set_ - let_).abs();
+                        ew_th = wob;
+                    } else if i == long_ne - 1 && j == short_ne - 1 {
+                        sw = (lst - sst).abs();
+                        sw_th = wob;
+                        ew_abs = false;
+                        ew = set_ - let_;
+                        ew_th = ends_wob;
+                    } else if i < long_ne - 1 && j == short_ne - 1 {
+                        sw = (lst - sst).abs();
+                        sw_th = wob;
+                        ew_abs = false;
+                        ew = set_ - let_;
+                        ew_th = wob;
+                    } else {
+                        sw = (lst - sst).abs();
+                        sw_th = wob;
+                        ew_abs = true;
+                        ew = (set_ - let_).abs();
+                        ew_th = wob;
+                    }
+                    let _ = ew_abs;
+                    if sw <= sw_th {
+                        ls.insert(i);
+                        ss.insert(j);
+                    }
+                    if ew <= ew_th {
+                        le.insert(i);
+                        se.insert(j);
+                    }
+                }
+            }
+        }
+        let ls: Vec<usize> = ls.into_iter().collect();
+        let le: Vec<usize> = le.into_iter().collect();
+        let ss: Vec<usize> = ss.into_iter().collect();
+        let se: Vec<usize> = se.into_iter().collect();
+        let mut no_match = false;
+        if ls.len() != le.len() || ss.len() != se.len() || ls.is_empty() || ss.is_empty() {
+            no_match = true;
+        }
+        if ss.len() != short_ne || se.len() != short_ne {
+            no_match = true;
+        }
+        if !no_match {
+            // consecutive-index consistency (start==end index, +1 steps)
+            for (idx, (&s, &e)) in ls.iter().zip(&le).enumerate() {
+                if s != e {
+                    no_match = true;
+                }
+                if idx > 0 && (s != ls[idx - 1] + 1 || e != le[idx - 1] + 1) {
+                    no_match = true;
+                }
+            }
+            for (idx, (&s, &e)) in ss.iter().zip(&se).enumerate() {
+                if s != e {
+                    no_match = true;
+                }
+                if idx > 0 && (s != ss[idx - 1] + 1 || e != se[idx - 1] + 1) {
+                    no_match = true;
+                }
+            }
+        }
+        if !no_match && long_ne > short_ne {
+            if ss.len() < short_ne {
+                no_match = true;
+            }
+        } else if !no_match && (ls.len() < long_ne || ss.len() < short_ne) {
+            no_match = true;
+        }
+        if no_match {
+            return None;
+        }
+        matched = true;
+        new_start0 = long.start().min(short.start());
+        new_end_last = long.end().max(short.end());
+    }
+
+    if matched {
+        Some((long_is_a, new_start0, new_end_last))
+    } else {
+        None
+    }
+}
+
+/// Remove fragment models. Ports `tama_remove_fragment_models` (tama_id/tama_cds).
+fn fragments(
+    bed: &std::path::Path,
+    output_prefix: &str,
+    wobble: i64,
+    ends_wobble: i64,
+    overlap_percent: i64,
+) -> anyhow::Result<()> {
+    let mut gene_list: Vec<String> = Vec::new();
+    let mut gene_trans: IndexMap<String, Vec<FragTx>> = IndexMap::new();
+    for line in read_lines(bed)? {
+        let cols: Vec<&str> = line.split('\t').collect();
+        let bt = tama_core::model::BedTranscript::parse_bed_line(&line)?;
+        let id_split: Vec<&str> = cols[3].split(';').collect();
+        let gene_id = id_split[0].to_string();
+        let trans_id = id_split[1].to_string();
+        let tx = FragTx {
+            scaffold: bt.scaffold.clone(),
+            trans_start: bt.trans_start,
+            trans_end: bt.trans_end,
+            gene_id: gene_id.clone(),
+            trans_id,
+            strand: bt.strand,
+            num_exons: bt.num_exons(),
+            exon_start_list: bt.exon_start_list,
+            exon_end_list: bt.exon_end_list,
+        };
+        if !gene_trans.contains_key(&gene_id) {
+            gene_list.push(gene_id.clone());
+        }
+        gene_trans.entry(gene_id).or_default().push(tx);
+    }
+
+    let mut out_bed = tama_io::create_writer(format!("{output_prefix}.bed"))?;
+    let mut out_discard = tama_io::create_writer(format!("{output_prefix}_discarded.txt"))?;
+
+    for gene_id in &gene_list {
+        let txs = gene_trans.get_mut(gene_id).unwrap();
+        let n = txs.len();
+        let id_to_idx: IndexMap<String, usize> =
+            txs.iter().enumerate().map(|(i, t)| (t.trans_id.clone(), i)).collect();
+        let mut removed: std::collections::HashSet<usize> = Default::default();
+
+        for ai in 0..n {
+            for bi in 0..n {
+                if ai == bi || removed.contains(&ai) || removed.contains(&bi) {
+                    continue;
+                }
+                if let Some((long_is_a, new_s0, new_el)) =
+                    compare_absorb(&txs[ai], &txs[bi], wobble, ends_wobble, overlap_percent)
+                {
+                    let (long_idx, short_idx) = if long_is_a { (ai, bi) } else { (bi, ai) };
+                    removed.insert(short_idx);
+                    let long = &mut txs[long_idx];
+                    let last = long.exon_end_list.len() - 1;
+                    long.exon_start_list[0] = new_s0;
+                    long.exon_end_list[last] = new_el;
+                }
+            }
+        }
+        let _ = &id_to_idx;
+
+        for (i, tx) in txs.iter().enumerate() {
+            if removed.contains(&i) {
+                writeln!(out_discard, "{}", tx.format_bed_line())?;
+            } else {
+                writeln!(out_bed, "{}", tx.format_bed_line())?;
+            }
         }
     }
     Ok(())
