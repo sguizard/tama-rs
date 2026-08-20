@@ -9,9 +9,10 @@ single `tama` binary exposing **every** tool as a subcommand, with native Rust
 I/O and **no Python / BioPython / samtools runtime dependency**.
 
 **New to TAMA?** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) explains what the program
-is for, the typical Iso-Seq workflow, and the purpose of each tool. For the
-authoritative biology and parameters, see the original
-[TAMA wiki](https://github.com/GenomeRIK/tama/wiki).
+is for, the typical Iso-Seq workflow, and the purpose of each tool. The
+[`docs/`](docs/README.md) directory has per-tool reference pages (inputs,
+outputs, every flag). For the authoritative biology and parameters, see the
+original [TAMA wiki](https://github.com/GenomeRIK/tama/wiki).
 
 ## Installation
 

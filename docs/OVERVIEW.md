@@ -10,6 +10,9 @@ the exact parameters, and see the original
 [paper](https://doi.org/10.1186/s12864-020-07123-7) for the authoritative
 biology and recommended settings.
 
+For per-tool detail (inputs, outputs, and every flag with its default), follow
+the links in each section below, or see the [documentation index](README.md).
+
 ## The problem TAMA solves
 
 When you sequence full-length transcripts and map them to a genome, you get
@@ -48,6 +51,8 @@ is why the tools compose so freely.
 
 ## Core tools
 
+*Detail pages: [Collapse](collapse.md) · [Merge](merge.md).*
+
 ### `tama collapse` — build transcript models from mapped reads
 Groups mapped reads by genomic locus and **collapses redundant reads into single
 transcript models**, choosing representative exon boundaries. It also flags
@@ -76,6 +81,10 @@ coordinates win when models are merged. Merge uses looser 5'/3' tolerances
 ---
 
 ## TAMA GO — the utility suite
+
+*Detail pages: [Filtering](filtering.md) · [ORF & NMD](orf-nmd.md) ·
+[Read support](read-support.md) · [Statistics](stats.md) ·
+[Format conversion](format-conversion.md) · [Utilities](utilities.md).*
 
 ### Transcript filtering (`tama filter …`)
 Clean up an annotation using read support and model geometry:
