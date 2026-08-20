@@ -8,11 +8,56 @@ The original project is a collection of Python 2 scripts. This rewrite ships a
 single `tama` binary exposing **every** tool as a subcommand, with native Rust
 I/O and **no Python / BioPython / samtools runtime dependency**.
 
-## Building
+## Installation
+
+`tama` is compiled from source with Rust's package manager, `cargo`. There is
+**no Python / BioPython / samtools** runtime dependency — you only need the Rust
+toolchain to build it.
+
+### 1. Install Rust (one time)
 
 ```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"   # load it into the current shell
+```
+
+Accept the defaults when prompted. This installs `cargo` into `~/.cargo/bin`.
+
+### 2. Install `tama`
+
+```sh
+cargo install --git https://github.com/sguizard/tama-rs
+```
+
+This compiles a release build and installs the `tama` binary to `~/.cargo/bin/`.
+To upgrade later, re-run the same command with `--force`.
+
+### 3. Put it on your PATH
+
+If `tama` isn't found afterwards, add `~/.cargo/bin` to your PATH (rustup usually
+does this for you):
+
+```sh
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 4. Verify
+
+```sh
+tama --help
+```
+
+## Building from source
+
+To work on the code (or keep the source tree around), clone and build; the binary
+lands at `target/release/tama`:
+
+```sh
+git clone https://github.com/sguizard/tama-rs.git
+cd tama-rs
 cargo build --release
-# binary at target/release/tama
+./target/release/tama --help
 ```
 
 Requires a stable Rust toolchain (built and tested with 1.98).
