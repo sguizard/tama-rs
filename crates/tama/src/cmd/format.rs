@@ -56,6 +56,10 @@ enum Cmd {
     Gff2bed {
         #[arg(long)]
         source: GffSource,
+        /// Input GFF file.
+        gff: std::path::PathBuf,
+        /// Output BED file.
+        output: std::path::PathBuf,
     },
     /// Restructure/filter BED ID fields. (tama_format_id_filter)
     IdFilter {
@@ -98,7 +102,10 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             GtfSource::Ensembl => Err(super::not_implemented("format gtf2bed --source ensembl")),
             GtfSource::Ncbi => Err(super::not_implemented("format gtf2bed --source ncbi")),
         },
-        Cmd::Gff2bed { .. } => Err(super::not_implemented("format gff2bed")),
+        Cmd::Gff2bed { source, gff, output } => match source {
+            GffSource::Cupcake => gff2bed_cupcake(&gff, &output),
+            GffSource::Liftoff => Err(super::not_implemented("format gff2bed --source liftoff")),
+        },
     }
 }
 
@@ -225,31 +232,110 @@ fn gtf2bed_stringtie(gtf: &std::path::Path, output: &std::path::Path) -> anyhow:
         }
     }
 
-    let mut out = tama_io::create_writer(output)?;
+    let mut records = Vec::new();
     for gene in &gene_order {
         for trans_id in &gene_trans[gene] {
             let tx = &trans[&(gene.clone(), trans_id.clone())];
-            let starts: Vec<i64> = tx.exons.values().map(|e| e.0).collect();
-            let ends: Vec<i64> = tx.exons.values().map(|e| e.1).collect();
-            let t_start = starts[0] - 1;
-            let t_end = *ends.last().unwrap();
-            let (mut blocks, mut rel_starts) = (String::new(), String::new());
-            for k in 0..starts.len() {
-                if k > 0 {
-                    blocks.push(',');
-                    rel_starts.push(',');
-                }
-                blocks.push_str(&(ends[k] + 1 - starts[k]).to_string());
-                rel_starts.push_str(&(starts[k] - t_start - 1).to_string());
-            }
-            writeln!(
-                out,
-                "{}\t{t_start}\t{t_end}\t{gene};{trans_id}\t40\t{}\t{t_start}\t{t_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
-                tx.chrom, tx.strand, starts.len()
-            )?;
+            let exons: Vec<(i64, i64)> = tx.exons.values().copied().collect();
+            records.push((tx.chrom.clone(), tx.strand, gene.clone(), trans_id.clone(), exons));
         }
     }
+    write_gtf_bed(&records, output)
+}
+
+type GtfBedRecord = (String, char, String, String, Vec<(i64, i64)>);
+
+/// Write records as TAMA BED12. Each record is (chrom, strand, gene, trans,
+/// ascending exons). Shared by the GTF/GFF converters; the coordinate math
+/// matches the originals (`t_start = first_exon_start - 1`, block = end+1-start).
+fn write_gtf_bed(records: &[GtfBedRecord], output: &std::path::Path) -> anyhow::Result<()> {
+    let mut out = tama_io::create_writer(output)?;
+    for (chrom, strand, gene, trans_id, exons) in records {
+        let t_start = exons[0].0 - 1;
+        let t_end = exons.last().unwrap().1;
+        let (mut blocks, mut rel_starts) = (String::new(), String::new());
+        for (k, &(s, e)) in exons.iter().enumerate() {
+            if k > 0 {
+                blocks.push(',');
+                rel_starts.push(',');
+            }
+            blocks.push_str(&(e + 1 - s).to_string());
+            rel_starts.push_str(&(s - t_start - 1).to_string());
+        }
+        writeln!(
+            out,
+            "{chrom}\t{t_start}\t{t_end}\t{gene};{trans_id}\t40\t{strand}\t{t_start}\t{t_end}\t255,0,0\t{}\t{blocks}\t{rel_starts}",
+            exons.len()
+        )?;
+    }
     Ok(())
+}
+
+/// Convert a Cupcake `collapsed.gff` to TAMA BED12. Ports
+/// `tama_format_gff_to_bed12_cupcake`. Exons come from `exon` feature lines in
+/// file order (which must be genomic-ascending).
+fn gff2bed_cupcake(gff: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::BufRead;
+    let mut gene_order: Vec<String> = Vec::new();
+    let mut gene_trans: IndexMap<String, Vec<String>> = IndexMap::new();
+    // (gene, trans) -> (chrom, strand, exons in order)
+    let mut trans: IndexMap<(String, String), (String, char, Vec<(i64, i64)>)> = IndexMap::new();
+
+    let reader = tama_io::open_reader(gff)?;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let chrom = cols[0];
+        let feature = cols[2];
+        let e_start: i64 = cols[3].parse()?;
+        let e_end: i64 = cols[4].parse()?;
+        let strand = cols[6].chars().next().unwrap_or('+');
+
+        let mut gene_id = None;
+        let mut trans_id = None;
+        for field in cols[8].split(';') {
+            let field = field.trim();
+            if field.is_empty() || !field.contains('"') {
+                continue;
+            }
+            let id_code = field.split('"').nth(1).unwrap_or("");
+            if field.contains("gene_id") {
+                gene_id = Some(id_code.to_string());
+            } else if field.contains("transcript_id") {
+                trans_id = Some(id_code.to_string());
+            }
+        }
+        let gene_id = gene_id.ok_or_else(|| anyhow::anyhow!("missing gene ID: {line}"))?;
+        let trans_id = trans_id.ok_or_else(|| anyhow::anyhow!("missing transcript ID: {line}"))?;
+
+        if !gene_trans.contains_key(&gene_id) {
+            gene_order.push(gene_id.clone());
+            gene_trans.insert(gene_id.clone(), Vec::new());
+        }
+        let key = (gene_id.clone(), trans_id.clone());
+        if !trans.contains_key(&key) {
+            gene_trans.get_mut(&gene_id).unwrap().push(trans_id.clone());
+            trans.insert(key.clone(), (chrom.to_string(), strand, Vec::new()));
+        }
+        if feature == "exon" {
+            trans.get_mut(&key).unwrap().2.push((e_start, e_end));
+        }
+    }
+
+    let mut records = Vec::new();
+    for gene in &gene_order {
+        for trans_id in &gene_trans[gene] {
+            let (chrom, strand, exons) = &trans[&(gene.clone(), trans_id.clone())];
+            records.push((chrom.clone(), *strand, gene.clone(), trans_id.clone(), exons.clone()));
+        }
+    }
+    write_gtf_bed(&records, output)
 }
 
 /// Convert a 4-line-per-record FASTQ to FASTA. Ports `tama_convert_nanopore_fastq_fasta`.
