@@ -588,7 +588,9 @@ fn read_support_levels(path: &std::path::Path) -> anyhow::Result<SupportMaps> {
 }
 
 /// Remove poly-A run-on models. Ports `tama_remove_polya_models_levels`.
-#[allow(clippy::too_many_arguments)]
+// The keep-decision branches mirror the original's separate conditions even
+// though several set the same `kept = true`.
+#[allow(clippy::too_many_arguments, clippy::if_same_then_else)]
 fn polya(
     bed: &std::path::Path,
     filelist: &std::path::Path,
