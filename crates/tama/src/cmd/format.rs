@@ -25,6 +25,28 @@ pub enum GffSource {
     Liftoff,
 }
 
+/// ID filtering level for `id-filter`. (`-f`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum IdFilterLevel {
+    /// Keep every model, filling missing Ensembl IDs from the TAMA IDs.
+    None,
+    /// Keep only models that carry an Ensembl ID.
+    OnlyMatch,
+}
+
+/// Sub-field restructuring method for `id-filter`. (`-s`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum IdMethod {
+    /// ID line produced by `tama merge` against an Ensembl annotation.
+    EnsemblMerge,
+    /// ID line produced by the ORF/NMD pipeline.
+    EnsemblOrf,
+    /// Reorder arbitrary sub-fields with `--reshuffle`.
+    Custom,
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Convert TAMA BED to Ensembl-style GTF (no CDS). (tama_convert_bed_gtf_ensembl_no_cds)
@@ -74,12 +96,12 @@ enum Cmd {
         /// Output file. (`-o`)
         #[arg(short = 'o', long)]
         output: std::path::PathBuf,
-        /// Filter level: `none` or `only_match`. (`-f`)
-        #[arg(short = 'f', long, default_value = "none")]
-        filter: String,
-        /// Sub-field method: `ensembl_merge`, `ensembl_orf`, or `custom`. (`-s`)
-        #[arg(short = 's', long, default_value = "ensembl_merge")]
-        method: String,
+        /// Filter level. (`-f`)
+        #[arg(short = 'f', long, value_enum, default_value = "none")]
+        filter: IdFilterLevel,
+        /// Sub-field method. (`-s`)
+        #[arg(short = 's', long, value_enum, default_value = "ensembl_merge")]
+        method: IdMethod,
         /// Custom reshuffle parameter, e.g. `3,4,1,2`. (`-r`)
         #[arg(short = 'r', long, default_value = "none")]
         reshuffle: String,
@@ -100,7 +122,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             method,
             reshuffle,
             delim,
-        } => id_filter(&bed, &output, &filter, &method, &reshuffle, &delim),
+        } => id_filter(&bed, &output, filter, method, &reshuffle, &delim),
         Cmd::Bed2gtfOrf { bed, output } => bed2gtf_orf(&bed, &output),
         Cmd::Gtf2bed {
             source,
@@ -1029,8 +1051,8 @@ fn fastq2fasta(fastq: &std::path::Path, output: &std::path::Path) -> anyhow::Res
 fn id_filter(
     bed: &std::path::Path,
     output: &std::path::Path,
-    filter: &str,
-    method: &str,
+    filter: IdFilterLevel,
+    method: IdMethod,
     reshuffle: &str,
     delim: &str,
 ) -> anyhow::Result<()> {
@@ -1058,13 +1080,13 @@ fn id_filter(
 /// Returns `Some(new_id_line)` to keep the record, or `None` to drop it.
 fn id_parse(
     id_line: &str,
-    filter: &str,
-    method: &str,
+    filter: IdFilterLevel,
+    method: IdMethod,
     reshuffle: &str,
     delim: &str,
 ) -> anyhow::Result<Option<String>> {
     match method {
-        "ensembl_merge" => {
+        IdMethod::EnsemblMerge => {
             let parts: Vec<&str> = id_line.split(delim).collect();
             let tama_gene = parts[0];
             let tama_trans = parts.get(1).copied().unwrap_or("");
@@ -1083,12 +1105,12 @@ fn id_parse(
                 other = parts[4..].to_vec();
             }
             match filter {
-                "only_match" => {
+                IdFilterLevel::OnlyMatch => {
                     if !ens_gene.contains("ENS") {
                         return Ok(None);
                     }
                 }
-                "none" => {
+                IdFilterLevel::None => {
                     if ens_gene.is_empty() {
                         ens_gene = tama_gene.to_string();
                     }
@@ -1096,7 +1118,6 @@ fn id_parse(
                         ens_trans = tama_trans.to_string();
                     }
                 }
-                other => bail!("invalid filter level {other:?}"),
             }
             let mut new = vec![
                 ens_gene,
@@ -1107,7 +1128,7 @@ fn id_parse(
             new.extend(other.iter().map(|s| s.to_string()));
             Ok(Some(new.join(";")))
         }
-        "ensembl_orf" => {
+        IdMethod::EnsemblOrf => {
             let parts: Vec<&str> = id_line.split(delim).collect();
             let tama_gene = parts[0];
             let tama_trans = parts.get(1).copied().unwrap_or("");
@@ -1131,7 +1152,7 @@ fn id_parse(
                 }
                 other = parts[3..].to_vec();
             }
-            if filter == "only_match" && !ens_gene.contains("ENS") {
+            if filter == IdFilterLevel::OnlyMatch && !ens_gene.contains("ENS") {
                 return Ok(None);
             }
             let mut new = vec![
@@ -1143,7 +1164,7 @@ fn id_parse(
             new.extend(other.iter().map(|s| s.to_string()));
             Ok(Some(new.join(";")))
         }
-        "custom" => {
+        IdMethod::Custom => {
             // split id_line on any of the delimiter characters
             let delims: Vec<char> = delim.chars().collect();
             let fields: Vec<&str> = id_line.split(|c| delims.contains(&c)).collect();
@@ -1154,6 +1175,5 @@ fn id_parse(
             }
             Ok(Some(new.join(";")))
         }
-        other => bail!("invalid subfield method {other:?}"),
     }
 }

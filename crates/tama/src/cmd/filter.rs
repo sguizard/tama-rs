@@ -3,8 +3,20 @@
 use std::io::Write;
 
 use anyhow::bail;
-use clap::{Args as ClapArgs, Subcommand};
+use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
+
+use crate::cmd::opts::{Level, Multi};
+
+/// Which poly-A supported models to consider. (`-a`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+enum PolyaSupport {
+    /// Consider every poly-A supported model.
+    AllPolya,
+    /// Consider only single-read poly-A supported models.
+    SingletonPolya,
+}
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -58,15 +70,15 @@ enum Cmd {
         /// Percent poly-A threshold. (`-p`)
         #[arg(short = 'p', long, default_value_t = 75.0)]
         percent: f64,
-        /// Removal level: `gene` or `transcript`. (`-l`)
-        #[arg(short = 'l', long, default_value = "gene")]
-        level: String,
-        /// `all_polya` or `singleton_polya`. (`-a`)
-        #[arg(short = 'a', long, default_value = "singleton_polya")]
-        support: String,
-        /// Multi-exon handling: `keep_multi` or `remove_multi`. (`-k`)
-        #[arg(short = 'k', long, default_value = "remove_multi")]
-        multi: String,
+        /// Removal level. (`-l`)
+        #[arg(short = 'l', long, value_enum, default_value = "gene")]
+        level: Level,
+        /// Which poly-A supported models to consider. (`-a`)
+        #[arg(short = 'a', long, value_enum, default_value = "singleton_polya")]
+        support: PolyaSupport,
+        /// Multi-exon handling. (`-k`)
+        #[arg(short = 'k', long, value_enum, default_value = "remove_multi")]
+        multi: Multi,
     },
     /// Remove single-read models by level. (tama_remove_single_read_models_levels)
     SingleRead {
@@ -79,12 +91,12 @@ enum Cmd {
         /// Output prefix. (`-o`)
         #[arg(short = 'o', long)]
         output: String,
-        /// Removal level: `gene` or `transcript`. (`-l`)
-        #[arg(short = 'l', long, default_value = "gene")]
-        level: String,
-        /// Multi-exon handling: `keep_multi` or `remove_multi`. (`-k`)
-        #[arg(short = 'k', long, default_value = "keep_multi")]
-        multi: String,
+        /// Removal level. (`-l`)
+        #[arg(short = 'l', long, value_enum, default_value = "gene")]
+        level: Level,
+        /// Multi-exon handling. (`-k`)
+        #[arg(short = 'k', long, value_enum, default_value = "keep_multi")]
+        multi: Multi,
         /// Minimum number of supporting sources. (`-s`)
         #[arg(short = 's', long, default_value_t = 1)]
         source_support: usize,
@@ -108,8 +120,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             &bed,
             &read,
             &output,
-            &level,
-            &multi,
+            level,
+            multi,
             source_support,
             read_support,
         ),
@@ -131,7 +143,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             support,
             multi,
         } => polya(
-            &bed, &filelist, &read, &output, percent, &level, &support, &multi,
+            &bed, &filelist, &read, &output, percent, level, support, multi,
         ),
     }
 }
@@ -142,8 +154,8 @@ fn single_read(
     bed: &std::path::Path,
     read: &std::path::Path,
     output_prefix: &str,
-    level: &str,
-    multi: &str,
+    level: Level,
+    multi: Multi,
     source_support: usize,
     read_support: usize,
 ) -> anyhow::Result<()> {
@@ -221,7 +233,7 @@ fn single_read(
             if num_sources(t) == 1 {
                 let src = source_reads[t].keys().next().unwrap().clone();
                 let num_reads = source_reads[t][&src].len();
-                if num_reads == 1 && !(multi == "keep_multi" && num_exons > 1) {
+                if num_reads == 1 && !(multi == Multi::KeepMulti && num_exons > 1) {
                     writeln!(out_report, "{gene_id}\t{t}\t{}\t{num_reads}\tremoved_gene\tremoved_transcript\t{num_exons}", source_line(t))?;
                     writeln!(out_single, "{}", trans_cols[t].join("\t"))?;
                     continue;
@@ -231,7 +243,7 @@ fn single_read(
 
         let mut new_trans_num = 0usize;
 
-        if level == "transcript" {
+        if level == Level::Transcript {
             let mut keep: IndexSet<String> = IndexSet::new();
             for t in &trans_list {
                 let num_exons = trans_exons[t];
@@ -240,9 +252,9 @@ fn single_read(
                 // source_support==1 case: the Python's `ns>1 && tr>=thr` and
                 // `tr>=thr` branches both reduce to `tr>=thr`.
                 let keep_flag = if source_support > 1 {
-                    ns >= source_support || (multi == "keep_multi" && num_exons > 1)
+                    ns >= source_support || (multi == Multi::KeepMulti && num_exons > 1)
                 } else {
-                    tr >= read_support || (multi == "keep_multi" && num_exons > 1)
+                    tr >= read_support || (multi == Multi::KeepMulti && num_exons > 1)
                 };
                 if keep_flag {
                     keep.insert(t.clone());
@@ -287,7 +299,7 @@ fn single_read(
                     writeln!(out_report, "{rl}")?;
                 }
             }
-        } else if level == "gene" {
+        } else if level == Level::Gene {
             for t in &trans_list {
                 let num_exons = trans_exons[t];
                 let tr = total_reads(t);
@@ -720,9 +732,9 @@ fn polya(
     read: &std::path::Path,
     output_prefix: &str,
     threshold: f64,
-    level: &str,
-    support_flag: &str,
-    multi: &str,
+    level: Level,
+    support_flag: PolyaSupport,
+    multi: Multi,
 ) -> anyhow::Result<()> {
     let (merge_trans_read, merge_source_read) = read_support_levels(read)?;
 
@@ -844,23 +856,23 @@ fn polya(
                     pc < all
                 };
                 let mut kept = false;
-                if level == "gene" {
+                if level == Level::Gene {
                     if trans_list.len() > 1 {
                         kept = true;
-                    } else if multi == "keep_multi" && num_exons > 1 {
+                    } else if multi == Multi::KeepMulti && num_exons > 1 {
                         kept = true;
-                    } else if support_flag == "singleton_polya" && total > 1 {
+                    } else if support_flag == PolyaSupport::SingletonPolya && total > 1 {
                         kept = true;
-                    } else if support_flag == "all_polya" && all_polya_keeps() {
+                    } else if support_flag == PolyaSupport::AllPolya && all_polya_keeps() {
                         kept = true;
                     }
                 } else {
                     // transcript level
-                    if multi == "keep_multi" && num_exons > 1 {
+                    if multi == Multi::KeepMulti && num_exons > 1 {
                         kept = true;
-                    } else if support_flag == "singleton_polya" && total > 1 {
+                    } else if support_flag == PolyaSupport::SingletonPolya && total > 1 {
                         kept = true;
-                    } else if support_flag == "all_polya" && all_polya_keeps() {
+                    } else if support_flag == PolyaSupport::AllPolya && all_polya_keeps() {
                         kept = true;
                     }
                 }
@@ -885,7 +897,7 @@ fn polya(
             let num_exons = trans_exons[t];
             if remove.contains(t) {
                 writeln!(out_polya, "{}", trans_cols[t].join("\t"))?;
-                let (ng, nt) = if level == "gene" || keep.is_empty() {
+                let (ng, nt) = if level == Level::Gene || keep.is_empty() {
                     ("removed_gene".to_string(), "removed_transcript".to_string())
                 } else {
                     (new_gene_id.clone(), "removed_transcript".to_string())

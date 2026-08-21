@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/tama-core", "crates/tama-io", "crates/tama"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/sguizard/tama-rs"
@@ -15,6 +15,7 @@ tama-io = { path = "crates/tama-io" }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4.6"
 log = "0.4"
 env_logger = "0.11"
 indexmap = "2"

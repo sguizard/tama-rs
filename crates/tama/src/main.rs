@@ -3,7 +3,10 @@
 //! A single binary exposing every original TAMA tool as a subcommand. Run
 //! `tama <group> --help` to see the tools in each group.
 
-use clap::{Parser, Subcommand};
+use std::io::Write;
+
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{generate, Shell};
 use tama::cmd;
 
 #[derive(Parser)]
@@ -46,6 +49,15 @@ enum Command {
     Variants(cmd::variants::Args),
     /// Sequence cleanup tools.
     Cleanup(cmd::cleanup::Args),
+    /// Generate a shell completion script on stdout.
+    ///
+    /// Write it to your shell's completions directory, e.g.
+    /// `tama completions fish > ~/.config/fish/completions/tama.fish`.
+    Completions {
+        /// Shell to generate completions for.
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -69,5 +81,26 @@ fn main() -> anyhow::Result<()> {
         Command::Split(a) => cmd::split::run(a),
         Command::Variants(a) => cmd::variants::run(a),
         Command::Cleanup(a) => cmd::cleanup::run(a),
+        Command::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            let mut out = std::io::stdout();
+            generate(shell, &mut cmd, name.clone(), &mut out);
+            if shell == Shell::Fish {
+                // clap_complete's fish generator only emits completions for
+                // options, not for positional arguments — without this,
+                // `tama completions <TAB>` falls back to listing files.
+                let shells: Vec<String> = Shell::value_variants()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                writeln!(
+                    out,
+                    "complete -c {name} -n \"__fish_{name}_using_subcommand completions\" -f -a \"{}\"",
+                    shells.join(" ")
+                )?;
+            }
+            Ok(())
+        }
     }
 }

@@ -5,6 +5,7 @@ pub mod collapse;
 pub mod filter;
 pub mod format;
 pub mod merge;
+pub mod opts;
 pub mod orf;
 pub mod split;
 pub mod stats;

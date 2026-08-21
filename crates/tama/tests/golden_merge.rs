@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 
+use tama::cmd::opts::{Dup, EndsOpt};
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -30,11 +32,11 @@ fn merge_capped_matches_golden() {
     let args = tama::cmd::merge::Args {
         filelist: root.join("test_data/merge/filelist_merge.txt"),
         prefix: prefix.to_str().unwrap().to_string(),
-        ends: "common_ends".to_string(),
+        ends: EndsOpt::CommonEnds,
         five_prime: 20,
         exon_thresh: 10,
         three_prime: 20,
-        dup: "no_merge".to_string(),
+        dup: Dup::NoMerge,
         source_id: None,
         cds_source: None,
     };

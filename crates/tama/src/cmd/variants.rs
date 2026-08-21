@@ -6,8 +6,9 @@ use anyhow::{bail, Context};
 use clap::{Args as ClapArgs, Subcommand};
 use indexmap::{IndexMap, IndexSet};
 
+use crate::cmd::opts::{CapFlag, IdentMethodOpt};
 use tama_core::error_calc::{calc_error_rate, Variation};
-use tama_core::metrics::{read_metrics, IdentMethod};
+use tama_core::metrics::read_metrics;
 use tama_io::sam::{mapped_flag, read_sam};
 
 #[derive(ClapArgs)]
@@ -33,18 +34,18 @@ pub struct CallArgs {
     /// Output prefix. (`-p`)
     #[arg(short = 'p', long = "prefix")]
     pub prefix: String,
-    /// Capped flag: `capped` or `no_cap`. (`-x`)
-    #[arg(short = 'x', long, default_value = "no_cap")]
-    pub cap_flag: String,
+    /// Capped flag. (`-x`)
+    #[arg(short = 'x', long, value_enum, default_value = "no_cap")]
+    pub cap_flag: CapFlag,
     /// Minimum coverage percent. (`-c`)
     #[arg(short = 'c', long, default_value_t = 99.0)]
     pub coverage: f64,
     /// Minimum identity percent. (`-i`)
     #[arg(short = 'i', long, default_value_t = 85.0)]
     pub identity: f64,
-    /// Identity method: `ident_cov` or `ident_map`. (`-icm`)
-    #[arg(long = "icm", default_value = "ident_cov")]
-    pub ident_method: String,
+    /// Identity method. (`-icm`)
+    #[arg(long = "icm", value_enum, default_value = "ident_cov")]
+    pub ident_method: IdentMethodOpt,
     /// Splice-junction error threshold (bp). (`-sjt`)
     #[arg(long = "sjt", default_value_t = 10)]
     pub sj_thresh: i64,
@@ -74,11 +75,9 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
     if args.bam {
         bail!("BAM input (-b) is not implemented yet; convert to SAM first");
     }
-    let ident_method = match args.ident_method.as_str() {
-        "ident_cov" => IdentMethod::IdentCov,
-        "ident_map" => IdentMethod::IdentMap,
-        other => bail!("invalid -icm method: {other:?}"),
-    };
+    // Validated by clap at parse time; this is a plain conversion to the
+    // `tama-core` domain enum.
+    let ident_method = args.ident_method.into();
 
     let genome = tama_io::fasta::load_fasta(&args.fasta)
         .with_context(|| format!("loading genome {}", args.fasta.display()))?;

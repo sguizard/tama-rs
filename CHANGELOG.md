@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-08-21
+
+### Added
+
+- **`tama completions <shell>`.** Generates a completion script on stdout for
+  `fish`, `bash`, `zsh`, `powershell`, or `elvish` from the clap definitions, so
+  it can never drift from the flags the binary accepts:
+  `tama completions fish > ~/.config/fish/completions/tama.fish`. A pre-generated
+  fish script is also committed at `completions/tama.fish` (regenerate with
+  `completions/regenerate.sh`; CI fails if it goes stale).
+
+### Changed
+
+- **Fixed-value flags are validated at parse time.** The options that accept a
+  known set of words — `collapse`/`variants call` `-x` and `-icm`,
+  `collapse`/`merge` `-e` and `-d`, `collapse` `-sj` and `-rm`, `filter polya`
+  and `filter single-read` `-l`/`-k`, `filter polya -a`, `orf extract-cds`/
+  `orf add-cds` `-s`, `orf blastp-parse -f`, `support levels -mt`, and
+  `format id-filter` `-f`/`-s` — are now typed rather than free-form strings.
+  Accepted spellings are unchanged (`no_cap`, `common_ends`, `singleton_polya`,
+  …), and they now tab-complete. **Behaviour change:** a value outside the set is
+  a usage error (exit 2) listing the valid options. Previously some of these were
+  silently ignored and fell through to the default branch.
+
 ## [0.2.1] — 2026-08-21
 
 ### Added

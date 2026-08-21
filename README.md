@@ -58,6 +58,31 @@ source ~/.bashrc
 tama --help
 ```
 
+### 5. Shell completions (optional)
+
+`tama` generates its own completion scripts, so they never drift from the flags
+the binary actually accepts:
+
+```sh
+# fish
+tama completions fish > ~/.config/fish/completions/tama.fish
+
+# bash
+tama completions bash > ~/.local/share/bash-completion/completions/tama
+
+# zsh (any directory on your $fpath)
+tama completions zsh > ~/.zfunc/_tama
+```
+
+fish picks the file up in the next shell you open — no config change needed. The
+completions cover subcommands, flags, and the fixed value sets (`-x <TAB>` offers
+`capped` / `no_cap`, `-e <TAB>` offers `common_ends` / `longest_ends`, and so on);
+path arguments fall through to normal file completion.
+
+A pre-generated fish script is also committed at
+[`completions/tama.fish`](completions/tama.fish) if you would rather drop it in
+without building first.
+
 ## Building from source
 
 To work on the code (or keep the source tree around), clone and build; the binary

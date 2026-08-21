@@ -9,10 +9,11 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use indexmap::IndexMap;
 
-use tama_core::collapse::{self, Cap, CollapseParams, CollapseResult, Ends, Merged, Transcript};
+use crate::cmd::opts::{CapFlag, Dup, EndsOpt, IdentMethodOpt, RunMode, SjPriority};
+use tama_core::collapse::{self, Cap, CollapseParams, CollapseResult, Merged, Transcript};
 use tama_core::error_calc::{calc_error_rate, Variation};
 use tama_core::gene::{gene_group, GeneMember};
-use tama_core::metrics::{read_metrics, IdentMethod};
+use tama_core::metrics::read_metrics;
 use tama_core::polya::{detect_polya, PolyA};
 use tama_io::sam::{mapped_flag, read_sam};
 
@@ -30,21 +31,21 @@ pub struct Args {
     /// Output prefix. (`-p`)
     #[arg(short = 'p', long = "prefix")]
     pub prefix: String,
-    /// Capped flag: `capped` or `no_cap`. (`-x`)
-    #[arg(short = 'x', long, default_value = "no_cap")]
-    pub cap_flag: String,
-    /// Collapse exon ends: `common_ends` or `longest_ends`. (`-e`)
-    #[arg(short = 'e', long, default_value = "common_ends")]
-    pub ends: String,
+    /// Capped flag. (`-x`)
+    #[arg(short = 'x', long, value_enum, default_value = "no_cap")]
+    pub cap_flag: CapFlag,
+    /// Collapse exon ends. (`-e`)
+    #[arg(short = 'e', long, value_enum, default_value = "common_ends")]
+    pub ends: EndsOpt,
     /// Minimum coverage percent. (`-c`)
     #[arg(short = 'c', long, default_value_t = 99.0)]
     pub coverage: f64,
     /// Minimum identity percent. (`-i`)
     #[arg(short = 'i', long, default_value_t = 85.0)]
     pub identity: f64,
-    /// Identity calculation method: `ident_cov` or `ident_map`. (`-icm`)
-    #[arg(long = "icm", default_value = "ident_cov")]
-    pub ident_method: String,
+    /// Identity calculation method. (`-icm`)
+    #[arg(long = "icm", value_enum, default_value = "ident_cov")]
+    pub ident_method: IdentMethodOpt,
     /// 5' threshold. (`-a`)
     #[arg(short = 'a', long, default_value_t = 10)]
     pub five_prime: i64,
@@ -54,12 +55,12 @@ pub struct Args {
     /// 3' threshold. (`-z`)
     #[arg(short = 'z', long, default_value_t = 10)]
     pub three_prime: i64,
-    /// Duplicate merge behaviour: `merge_dup` or `no_merge`. (`-d`)
-    #[arg(short = 'd', long, default_value = "merge_dup")]
-    pub dup: String,
-    /// Splice-junction priority: `no_priority` or `sj_priority`. (`-sj`)
-    #[arg(long = "sj", default_value = "no_priority")]
-    pub sj_priority: String,
+    /// Duplicate merge behaviour. (`-d`)
+    #[arg(short = 'd', long, value_enum, default_value = "merge_dup")]
+    pub dup: Dup,
+    /// Splice-junction priority. (`-sj`)
+    #[arg(long = "sj", value_enum, default_value = "no_priority")]
+    pub sj_priority: SjPriority,
     /// Splice-junction error threshold (bp). (`-sjt`)
     #[arg(long = "sjt", default_value_t = 10)]
     pub sj_thresh: i64,
@@ -69,9 +70,9 @@ pub struct Args {
     /// Treat input as BAM instead of SAM. (`-b`)
     #[arg(short = 'b', long)]
     pub bam: bool,
-    /// Run mode: `original` or `low_mem`. (`-rm`)
-    #[arg(long = "rm", default_value = "original")]
-    pub run_mode: String,
+    /// Run mode. (`-rm`)
+    #[arg(long = "rm", value_enum, default_value = "original")]
+    pub run_mode: RunMode,
     /// Variation coverage threshold (reads). (`-vc`)
     #[arg(long = "vc", default_value_t = 5)]
     pub var_coverage: i64,
@@ -87,29 +88,19 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     if args.bam {
         bail!("BAM input (-b) is not implemented yet; convert to SAM first");
     }
-    let cap = match args.cap_flag.as_str() {
-        "capped" => Cap::Capped,
-        "no_cap" => Cap::NoCap,
-        other => bail!("invalid -x cap flag: {other:?} (use capped or no_cap)"),
-    };
-    let ends = match args.ends.as_str() {
-        "common_ends" => Ends::CommonEnds,
-        "longest_ends" => Ends::LongestEnds,
-        other => bail!("invalid -e ends flag: {other:?}"),
-    };
-    let ident_method = match args.ident_method.as_str() {
-        "ident_cov" => IdentMethod::IdentCov,
-        "ident_map" => IdentMethod::IdentMap,
-        other => bail!("invalid -icm method: {other:?}"),
-    };
+    // Values are validated by clap at parse time; these are plain conversions
+    // from the CLI spelling to the `tama-core` domain enums.
+    let cap = args.cap_flag.into();
+    let ends = args.ends.into();
+    let ident_method = args.ident_method.into();
     let params = CollapseParams {
         fiveprime_threshold: args.five_prime,
         threeprime_threshold: args.three_prime,
         exon_diff_threshold: args.exon_thresh,
         cap,
         ends,
-        sj_priority: args.sj_priority == "sj_priority",
-        merge_dup: args.dup != "no_merge",
+        sj_priority: args.sj_priority == SjPriority::SjPriority,
+        merge_dup: args.dup != Dup::NoMerge,
     };
 
     let genome = tama_io::fasta::load_fasta(&args.fasta)

@@ -18,6 +18,7 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use indexmap::{IndexMap, IndexSet};
 
+use crate::cmd::opts::{Dup, EndsOpt};
 use tama_core::gene::{gene_group, GeneMember};
 use tama_core::model::BedTranscript;
 
@@ -29,9 +30,9 @@ pub struct Args {
     /// Output prefix. (`-p`)
     #[arg(short = 'p', long = "prefix")]
     pub prefix: String,
-    /// Collapse exon ends: `common_ends` or `longest_ends`. (`-e`)
-    #[arg(short = 'e', long, default_value = "common_ends")]
-    pub ends: String,
+    /// Collapse exon ends. (`-e`)
+    #[arg(short = 'e', long, value_enum, default_value = "common_ends")]
+    pub ends: EndsOpt,
     /// 5' threshold. (`-a`, merge default 20)
     #[arg(short = 'a', long, default_value_t = 20)]
     pub five_prime: i64,
@@ -41,9 +42,9 @@ pub struct Args {
     /// 3' threshold. (`-z`, merge default 20)
     #[arg(short = 'z', long, default_value_t = 20)]
     pub three_prime: i64,
-    /// Duplicate merge behaviour: `no_merge` or `merge_dup`. (`-d`)
-    #[arg(short = 'd', long, default_value = "no_merge")]
-    pub dup: String,
+    /// Duplicate merge behaviour. (`-d`)
+    #[arg(short = 'd', long, value_enum, default_value = "no_merge")]
+    pub dup: Dup,
     /// Use gene/transcript IDs from this merge source. (`-s`)
     #[arg(short = 's', long)]
     pub source_id: Option<String>,
@@ -173,7 +174,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         five: args.five_prime,
         three: args.three_prime,
         exon: args.exon_thresh,
-        longest_ends: args.ends == "longest_ends",
+        longest_ends: args.ends == EndsOpt::LongestEnds,
     };
     // ---- parse filelist ----
     let filelist_dir = args

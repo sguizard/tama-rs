@@ -10,6 +10,8 @@
 
 use std::path::PathBuf;
 
+use tama::cmd::opts::{CapFlag, Dup, EndsOpt, IdentMethodOpt, RunMode, SjPriority};
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -22,11 +24,16 @@ fn sorted_lines(s: &str) -> Vec<&str> {
     v
 }
 
-fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
+fn run_and_compare(cap_flag: CapFlag, golden_subdir: &str) {
+    // CLI spelling of the flag, used for the temp dir and assertion messages.
+    let label = match cap_flag {
+        CapFlag::Capped => "capped",
+        CapFlag::NoCap => "no_cap",
+    };
     let root = workspace_root();
     let out_dir = std::env::temp_dir().join(format!(
         "tama_collapse_test_{}_{}",
-        cap_flag,
+        label,
         std::process::id()
     ));
     std::fs::create_dir_all(&out_dir).unwrap();
@@ -36,20 +43,20 @@ fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
         sam: root.join("test_data/gmap_test.sam"),
         fasta: root.join("test_data/test_genome.fa"),
         prefix: prefix.to_str().unwrap().to_string(),
-        cap_flag: cap_flag.to_string(),
-        ends: "common_ends".to_string(),
+        cap_flag,
+        ends: EndsOpt::CommonEnds,
         coverage: 99.0,
         identity: 85.0,
-        ident_method: "ident_cov".to_string(),
+        ident_method: IdentMethodOpt::IdentCov,
         five_prime: 10,
         exon_thresh: 10,
         three_prime: 10,
-        dup: "merge_dup".to_string(),
-        sj_priority: "no_priority".to_string(),
+        dup: Dup::MergeDup,
+        sj_priority: SjPriority::NoPriority,
         sj_thresh: 10,
         lde: 1000,
         bam: false,
-        run_mode: "original".to_string(),
+        run_mode: RunMode::Original,
         var_coverage: 5,
     };
     tama::cmd::collapse::run(args).expect("collapse run");
@@ -60,7 +67,7 @@ fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
     assert_eq!(
         read(out_dir.join("collapse.bed")),
         read(golden.join("collapse.bed")),
-        "[{cap_flag}] .bed must match the original exactly (order + IDs)"
+        "[{label}] .bed must match the original exactly (order + IDs)"
     );
 
     for name in [
@@ -70,17 +77,13 @@ fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
     ] {
         let mine = read(out_dir.join(name));
         let gold = read(golden.join(name));
-        assert_eq!(
-            sorted_lines(&mine),
-            sorted_lines(&gold),
-            "[{cap_flag}] {name}"
-        );
+        assert_eq!(sorted_lines(&mine), sorted_lines(&gold), "[{label}] {name}");
     }
 
     assert_eq!(
         read(out_dir.join("collapse_strand_check.txt")),
         read(golden.join("collapse_strand_check.txt")),
-        "[{cap_flag}] strand_check"
+        "[{label}] strand_check"
     );
 
     // trans_report: first 10 columns exact; last column as a token set.
@@ -103,17 +106,17 @@ fn run_and_compare(cap_flag: &str, golden_subdir: &str) {
         rows.sort_unstable();
         rows
     };
-    assert_eq!(norm(&mine), norm(&gold), "[{cap_flag}] trans_report");
+    assert_eq!(norm(&mine), norm(&gold), "[{label}] trans_report");
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
 #[test]
 fn collapse_capped_matches_golden() {
-    run_and_compare("capped", "tests/golden");
+    run_and_compare(CapFlag::Capped, "tests/golden");
 }
 
 #[test]
 fn collapse_nocap_matches_golden() {
-    run_and_compare("no_cap", "tests/golden_nocap");
+    run_and_compare(CapFlag::NoCap, "tests/golden_nocap");
 }

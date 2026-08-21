@@ -2,8 +2,20 @@
 
 use std::io::{BufRead, Write};
 
-use clap::{Args as ClapArgs, Subcommand};
+use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 use indexmap::IndexMap;
+
+use crate::cmd::opts::StopCodon;
+
+/// BLASTP database ID format. (`-f`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum BlastpFormat {
+    /// UniRef-style subject IDs.
+    Uniref,
+    /// Ensembl-style subject IDs (`gene:` / `transcript:` fields).
+    Ensembl,
+}
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -27,9 +39,9 @@ enum Cmd {
         /// ORF/NMD BED file. (`-b`)
         #[arg(short = 'b', long)]
         bed: std::path::PathBuf,
-        /// Stop codon flag: `include_stop` or anything else to exclude. (`-s`)
-        #[arg(short = 's', long, default_value = "no_stop_codon")]
-        stop: String,
+        /// Whether the stop codon is part of the CDS. (`-s`)
+        #[arg(short = 's', long, value_enum, default_value = "no_stop_codon")]
+        stop: StopCodon,
         /// Output BED file. (`-o`)
         #[arg(short = 'o', long)]
         output: std::path::PathBuf,
@@ -48,9 +60,9 @@ enum Cmd {
         /// Output BED file. (`-o`)
         #[arg(short = 'o', long)]
         output: std::path::PathBuf,
-        /// Include the stop codon in the CDS (`include_stop`). (`-s`)
-        #[arg(short = 's', long, default_value = "no_stop_codon")]
-        stop: String,
+        /// Whether the stop codon is part of the CDS. (`-s`)
+        #[arg(short = 's', long, value_enum, default_value = "no_stop_codon")]
+        stop: StopCodon,
         /// Distance from last SJ to call NMD. (`-d`)
         #[arg(short = 'd', long, default_value_t = 50)]
         sj_dist: i64,
@@ -63,16 +75,16 @@ enum Cmd {
         /// Output file. (`-o`)
         #[arg(short = 'o', long)]
         output: std::path::PathBuf,
-        /// DB ID format: `uniref` or `ensembl`. (`-f`)
-        #[arg(short = 'f', long, default_value = "uniref")]
-        format: String,
+        /// DB ID format. (`-f`)
+        #[arg(short = 'f', long, value_enum, default_value = "uniref")]
+        format: BlastpFormat,
     },
 }
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Cmd::Seek { fasta, output } => seek(&fasta, &output),
-        Cmd::ExtractCds { bed, stop, output } => extract_cds(&bed, &stop, &output),
+        Cmd::ExtractCds { bed, stop, output } => extract_cds(&bed, stop, &output),
         Cmd::AddCds {
             parse,
             bed,
@@ -80,12 +92,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             output,
             stop,
             sj_dist,
-        } => add_cds(&parse, &bed, &fasta, &output, &stop, sj_dist),
+        } => add_cds(&parse, &bed, &fasta, &output, stop, sj_dist),
         Cmd::BlastpParse {
             blastp,
             output,
             format,
-        } => blastp_parse(&blastp, &output, &format),
+        } => blastp_parse(&blastp, &output, format),
     }
 }
 
@@ -252,7 +264,7 @@ fn add_cds(
     bed: &std::path::Path,
     fasta: &std::path::Path,
     output: &std::path::Path,
-    stop: &str,
+    stop: StopCodon,
     sj_dist: i64,
 ) -> anyhow::Result<()> {
     // blastp parse: trans_id -> [id, frame, nuc_start, nuc_end, prot_start, prot_end, prot_id, match_flag]
@@ -313,14 +325,14 @@ fn add_cds(
         let tlen = trans_len[&trans_id];
 
         let (cds_rel_start, cds_rel_end) = if strand == '+' {
-            let end = if stop == "include_stop" {
+            let end = if stop == StopCodon::IncludeStop {
                 nuc_end + 1
             } else {
                 nuc_end - 2
             };
             (nuc_start, end)
         } else {
-            let start = if stop == "include_stop" {
+            let start = if stop == StopCodon::IncludeStop {
                 tlen - (nuc_end + 1)
             } else {
                 tlen - (nuc_end - 2)
@@ -383,7 +395,11 @@ fn add_cds(
 
 /// Extract the CDS region of each coding model as a new bed. Ports
 /// `tama_bed_extract_cds`.
-fn extract_cds(bed: &std::path::Path, stop: &str, output: &std::path::Path) -> anyhow::Result<()> {
+fn extract_cds(
+    bed: &std::path::Path,
+    stop: StopCodon,
+    output: &std::path::Path,
+) -> anyhow::Result<()> {
     let mut out = tama_io::create_writer(output)?;
     for line in read_lines(bed)? {
         let mut cols: Vec<String> = line.split('\t').map(String::from).collect();
@@ -432,7 +448,7 @@ fn extract_cds(bed: &std::path::Path, stop: &str, output: &std::path::Path) -> a
             coord_list[idx - 1]
         };
 
-        if stop == "include_stop" {
+        if stop == StopCodon::IncludeStop {
             if strand == '+' {
                 let idx = coord_idx[&cds_end_adj];
                 cds_end_adj = coord_list[idx + 3];
@@ -505,7 +521,7 @@ struct Hit {
 fn blastp_parse(
     blastp: &std::path::Path,
     output: &std::path::Path,
-    format: &str,
+    format: BlastpFormat,
 ) -> anyhow::Result<()> {
     use std::io::BufRead;
 
@@ -551,9 +567,9 @@ fn blastp_parse(
         if s_name_flag == 1 {
             if let Some(rest) = line.strip_prefix("Length=") {
                 let mut sn: String = s_name_list.concat();
-                if format == "uniref" {
+                if format == BlastpFormat::Uniref {
                     sn = sn.split_whitespace().next().unwrap_or("").to_string();
-                } else if format == "ensembl" {
+                } else if format == BlastpFormat::Ensembl {
                     let (mut g, mut t) = (String::new(), String::new());
                     for f in sn.split_whitespace() {
                         if let Some(v) = f.strip_prefix("gene:") {

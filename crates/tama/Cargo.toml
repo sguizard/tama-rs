@@ -14,6 +14,7 @@ tama-core.workspace = true
 tama-io.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 log.workspace = true
 env_logger.workspace = true
 indexmap.workspace = true

@@ -3,8 +3,20 @@
 use std::io::{BufRead, Write};
 
 use anyhow::bail;
-use clap::{Args as ClapArgs, Subcommand};
+use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 use indexmap::{IndexMap, IndexSet};
+
+/// Layout of the merge file passed to `support levels`. (`-mt`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum MergeType {
+    /// A `tama merge` `_merge.txt` / `trans_read.bed` file.
+    Tama,
+    /// A cupcake collapse group file.
+    Cupcake,
+    /// A `tama filter` report.
+    Filter,
+}
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -34,9 +46,9 @@ enum Cmd {
         /// Output prefix (writes `<prefix>_read_support.txt`). (`-o`)
         #[arg(short = 'o', long)]
         output: String,
-        /// Merge type: `tama`, `cupcake`, or `filter`. (`-mt`)
-        #[arg(long = "mt", default_value = "tama")]
-        merge_type: String,
+        /// Merge file layout. (`-mt`)
+        #[arg(long = "mt", value_enum, default_value = "tama")]
+        merge_type: MergeType,
     },
     /// Read support after merging collapse outputs. (tama_read_support_merge_collapse)
     MergeCollapse {
@@ -61,7 +73,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             merge,
             output,
             merge_type,
-        } => levels(&filelist, &merge, &output, &merge_type),
+        } => levels(&filelist, &merge, &output, merge_type),
         Cmd::MergeCollapse {
             merge,
             filelist,
@@ -354,7 +366,7 @@ fn levels(
     filelist: &std::path::Path,
     merge: &str,
     output_prefix: &str,
-    merge_type: &str,
+    merge_type: MergeType,
 ) -> anyhow::Result<()> {
     // source -> trans_id -> set(read)
     let mut src_trans_read: IndexMap<String, IndexMap<String, IndexSet<String>>> = IndexMap::new();
@@ -432,12 +444,12 @@ fn levels(
         let has_trans_read = merge.contains("trans_read.bed");
 
         for line in read_lines(std::path::Path::new(merge))? {
-            if merge_type == "filter" && line.starts_with("old_gene_id") {
+            if merge_type == MergeType::Filter && line.starts_with("old_gene_id") {
                 continue;
             }
             let cols: Vec<&str> = line.split('\t').collect();
             let (merge_trans_id, source_name, source_trans_id, merge_gene_id) = match merge_type {
-                "tama" => {
+                MergeType::Tama => {
                     let id_split: Vec<&str> = cols[3].split(';').collect();
                     let mtid = id_split[0].to_string();
                     let stid_line = id_split[1];
@@ -456,7 +468,7 @@ fn levels(
                     let mg = mtid.split('.').next().unwrap_or(&mtid).to_string();
                     (mtid, sname, stid, mg)
                 }
-                "cupcake" => {
+                MergeType::Cupcake => {
                     // handled per source_trans below; loop expansion done here
                     let mtid = cols[0].to_string();
                     let parts: Vec<&str> = mtid.split('.').collect();
@@ -477,7 +489,7 @@ fn levels(
                     }
                     continue;
                 }
-                "filter" => {
+                MergeType::Filter => {
                     let mtid = cols[5].to_string();
                     if mtid == "removed_transcript" {
                         continue;
@@ -489,7 +501,6 @@ fn levels(
                         cols[4].to_string(),
                     )
                 }
-                other => bail!("unknown merge type {other:?}"),
             };
             add_merge_entry(
                 &mut merge_trans,

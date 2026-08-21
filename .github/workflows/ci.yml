@@ -33,5 +33,10 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      - name: Completions up to date
+        run: |
+          cargo run -q -p tama -- completions fish > /tmp/tama.fish
+          diff -u completions/tama.fish /tmp/tama.fish
+
       - name: Test
         run: cargo test --verbose
