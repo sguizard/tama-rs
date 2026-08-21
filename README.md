@@ -36,11 +36,20 @@ Accept the defaults when prompted. This installs `cargo` into `~/.cargo/bin`.
 ### 2. Install `tama`
 
 ```sh
-cargo install --git https://github.com/sguizard/tama-rs
+cargo install tama-rs
 ```
 
 This compiles a release build and installs the `tama` binary to `~/.cargo/bin/`.
 To upgrade later, re-run the same command with `--force`.
+
+> The crate is published as **`tama-rs`** because the name `tama` on crates.io
+> belongs to an unrelated project. The installed command is still `tama`.
+
+To install the latest unreleased commit instead:
+
+```sh
+cargo install --git https://github.com/sguizard/tama-rs
+```
 
 ### 3. Put it on your PATH
 

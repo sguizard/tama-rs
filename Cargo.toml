@@ -8,10 +8,12 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/sguizard/tama-rs"
 description = "TAMA: Transcriptome Annotation by Modular Algorithms (Rust rewrite)"
+keywords = ["bioinformatics", "transcriptome", "long-read", "isoseq", "genomics"]
+categories = ["command-line-utilities", "science"]
 
 [workspace.dependencies]
-tama-core = { path = "crates/tama-core" }
-tama-io = { path = "crates/tama-io" }
+tama-core = { path = "crates/tama-core", version = "0.3.0" }
+tama-io = { path = "crates/tama-io", version = "0.3.0" }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }

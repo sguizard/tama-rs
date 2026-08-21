@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Published on crates.io** as [`tama-rs`](https://crates.io/crates/tama-rs)
+  (`cargo install tama-rs`), alongside the `tama-core` and `tama-io`
+  libraries. The package is named `tama-rs` because `tama` on crates.io
+  belongs to an unrelated project; the installed binary is still `tama`.
+
 - **`tama completions <shell>`.** Generates a completion script on stdout for
   `fish`, `bash`, `zsh`, `powershell`, or `elvish` from the clap definitions, so
   it can never drift from the flags the binary accepts:

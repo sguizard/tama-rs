@@ -1,9 +1,20 @@
 [package]
-name = "tama"
+# Published as `tama-rs`: the `tama` name on crates.io is taken by an
+# unrelated project. The installed binary is still called `tama`.
+name = "tama-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+# Keep the library crate importable as `tama` (integration tests use it).
+[lib]
+name = "tama"
+path = "src/lib.rs"
 
 [[bin]]
 name = "tama"

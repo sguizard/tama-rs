@@ -479,21 +479,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tama"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "clap",
- "clap_complete",
- "env_logger",
- "indexmap",
- "log",
- "rayon",
- "tama-core",
- "tama-io",
-]
-
-[[package]]
 name = "tama-core"
 version = "0.3.0"
 dependencies = [
@@ -512,6 +497,21 @@ dependencies = [
  "log",
  "tama-core",
  "thiserror",
+]
+
+[[package]]
+name = "tama-rs"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "env_logger",
+ "indexmap",
+ "log",
+ "rayon",
+ "tama-core",
+ "tama-io",
 ]
 
 [[package]]
