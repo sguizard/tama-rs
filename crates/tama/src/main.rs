@@ -15,6 +15,11 @@ use tama::cmd;
                   Each original TAMA script is available here as a subcommand."
 )]
 struct Cli {
+    /// Print progress messages to stderr while running (so you can see the run is
+    /// still going). Off by default; only end-of-run summaries are shown. Can also
+    /// be controlled with the RUST_LOG environment variable.
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -44,11 +49,15 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    let cli = Cli::parse();
+
+    // Default: `info` (end-of-run summaries only). `--verbose` raises it to `debug`
+    // so the per-step progress heartbeats show. RUST_LOG still overrides both.
+    let default_level = if cli.verbose { "debug" } else { "info" };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_level))
         .format_timestamp(None)
         .init();
 
-    let cli = Cli::parse();
     match cli.command {
         Command::Collapse(a) => cmd::collapse::run(a),
         Command::Merge(a) => cmd::merge::run(a),

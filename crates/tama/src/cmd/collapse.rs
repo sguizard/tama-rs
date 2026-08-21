@@ -116,6 +116,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         .with_context(|| format!("loading genome {}", args.fasta.display()))?;
     let records =
         read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
+    log::debug!("collapse: read {} SAM records; processing…", records.len());
 
     // ---- output writers ----
     let p = &args.prefix;
@@ -141,7 +142,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     let mut n_accepted = 0i64;
     let mut n_discarded = 0i64;
 
-    for rec in &records {
+    let total_records = records.len();
+    for (rec_idx, rec) in records.iter().enumerate() {
+        if rec_idx > 0 && rec_idx % 100_000 == 0 {
+            log::debug!("collapse: processed {rec_idx}/{total_records} reads");
+        }
         let mflag = mapped_flag(rec.flag);
         let strand = match mflag {
             "forward_strand" => '+',
@@ -253,6 +258,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     // ---- position grouping (contiguous overlap on scaffold, SAM order) ----
     let groups = position_groups(&accepted)?;
+    log::debug!(
+        "collapse: {} reads accepted, {} discarded; collapsing {} loci…",
+        n_accepted,
+        n_discarded,
+        groups.len()
+    );
 
     // ---- per group: gene grouping, collapsing, output ----
     let mut gene_count = 0i64;
@@ -284,6 +295,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
         for (_start, _rev, trans_ids) in gene_entries {
             gene_count += 1;
+            if gene_count % 5000 == 0 {
+                log::debug!("collapse: {gene_count} genes processed");
+            }
             let trans_objs: Vec<Transcript> = trans_ids
                 .iter()
                 .map(|id| accepted[id.as_str()].trans.clone())

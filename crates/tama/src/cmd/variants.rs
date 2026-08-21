@@ -84,6 +84,7 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
         .with_context(|| format!("loading genome {}", args.fasta.display()))?;
     let records =
         read_sam(&args.sam).with_context(|| format!("reading SAM {}", args.sam.display()))?;
+    log::debug!("variants: read {} SAM records; processing…", records.len());
 
     let p = &args.prefix;
     let mut out_read = tama_io::create_writer(format!("{p}_read.txt"))?;
@@ -104,7 +105,11 @@ fn call(args: CallArgs) -> anyhow::Result<()> {
     let mut scaffold_order: Vec<String> = Vec::new();
     let mut seen_scaffold: IndexSet<String> = IndexSet::new();
 
-    for rec in &records {
+    let total_records = records.len();
+    for (rec_idx, rec) in records.iter().enumerate() {
+        if rec_idx > 0 && rec_idx % 100_000 == 0 {
+            log::debug!("variants: processed {rec_idx}/{total_records} reads");
+        }
         let mflag = mapped_flag(rec.flag);
         let strand = match mflag {
             "forward_strand" => '+',

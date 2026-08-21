@@ -241,6 +241,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     type StartMap = BTreeMap<i64, EndMap>;
     let mut bed_dict: BTreeMap<String, StartMap> = BTreeMap::new();
 
+    let mut total_loaded = 0usize;
     for (source_id, (filename, seq, prio)) in &sources {
         let capped = seq == "capped";
         let path = if std::path::Path::new(filename).is_absolute() {
@@ -252,6 +253,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             .with_context(|| format!("opening bed {}", path.display()))?;
         let transcripts = tama_core::bed::read_bed(reader)
             .with_context(|| format!("parsing bed {}", path.display()))?;
+        let n = transcripts.len();
         for bt in transcripts {
             let tx = to_merge_tx(&bt, source_id, capped, *prio);
             bed_dict
@@ -263,7 +265,14 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                 .or_default()
                 .push(tx);
         }
+        total_loaded += n;
+        log::debug!("merge: loaded {n} transcripts from source {source_id}");
     }
+    log::debug!(
+        "merge: {total_loaded} transcripts from {} sources across {} scaffolds; grouping…",
+        sources.len(),
+        bed_dict.len()
+    );
 
     // ---- output writers ----
     let p = &args.prefix;
@@ -276,7 +285,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     // ---- position grouping per scaffold, then process each group ----
     let mut total_gene_count = 0i64;
-    for start_map in bed_dict.values() {
+    let num_scaffolds = bed_dict.len();
+    for (scaff_idx, (scaffold, start_map)) in bed_dict.iter().enumerate() {
         let starts: Vec<i64> = start_map.keys().copied().collect();
         let num = starts.len();
         let mut group: Vec<MergeTx> = Vec::new();
@@ -331,6 +341,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                 )?;
             }
         }
+        log::debug!(
+            "merge: scaffold {}/{} ({scaffold}) done — {total_gene_count} genes so far",
+            scaff_idx + 1,
+            num_scaffolds
+        );
     }
 
     log::info!("merge done: {total_gene_count} genes");

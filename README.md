@@ -94,6 +94,20 @@ tama format bed2gtf-orf orf_nmd.bed orf_nmd.gtf
 Run `tama --help`, `tama <group> --help`, or `tama <group> <tool> --help` for
 the full flag list of any tool.
 
+By default the tools are quiet, printing only a one-line summary when a step
+finishes. Add **`-v` / `--verbose`** (before or after the subcommand) to print
+periodic progress to stderr — useful on large inputs to confirm a long
+`collapse`/`merge`/`variants` run is still going:
+
+```sh
+tama -v merge -f filelist.txt -p merged
+# [DEBUG tama::cmd::merge] merge: loaded 120000 transcripts from source ensembl
+# [DEBUG tama::cmd::merge] merge: scaffold 3/40 (chr3) done — 5123 genes so far
+```
+
+Verbosity can also be set with the `RUST_LOG` environment variable (e.g.
+`RUST_LOG=warn` to suppress the summary, `RUST_LOG=off` for silence).
+
 ## Layout
 
 - `crates/tama-core` — domain model, TAMA BED12 dialect, CIGAR handling, per-read
