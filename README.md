@@ -14,6 +14,10 @@ is for, the typical Iso-Seq workflow, and the purpose of each tool. The
 outputs, every flag). For the authoritative biology and parameters, see the
 original [TAMA wiki](https://github.com/GenomeRIK/tama/wiki).
 
+**How was this built?** `tama-rs` is an AI-assisted port, validated byte-for-byte
+against the original Python 2 — see [`DEVELOPMENT.md`](DEVELOPMENT.md) for the
+full method and provenance.
+
 ## Installation
 
 `tama` is compiled from source with Rust's package manager, `cargo`. There is
