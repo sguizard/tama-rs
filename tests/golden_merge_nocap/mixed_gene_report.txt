@@ -1,0 +1,6 @@
+gene_id	num_clusters	num_final_trans	sources	chrom	start	end	source_genes	source_summary
+G1	16	8	cap,nc	AADN04001032.1	899	3163	cap_G1,nc_G1	cap:1,nc:1
+G2	40	15	cap,nc	AADN04001032.1	3200	5411	cap_G2,nc_G2	cap:1,nc:1
+G3	2	1	cap,nc	AADN04001032.1	8662	12814	cap_G3,nc_G3	cap:1,nc:1
+G4	4	2	cap,nc	AADN04001032.1	12840	13956	cap_G4,nc_G4	cap:1,nc:1
+G5	2	1	cap,nc	AADN04001032.1	13002	13313	cap_G5,nc_G5	cap:1,nc:1

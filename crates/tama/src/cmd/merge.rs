@@ -1,12 +1,15 @@
 //! `tama merge` — merge transcript annotations across sources.
 //!
-//! Ports `tama_merge.py` (capped path). Reads a filelist of BED sources (each
-//! with a cap flag and start/junction/end priorities), groups overlapping
-//! transcripts into genes, collapses matching models (priority-aware), and writes
-//! the merged BED plus merge/trans/gene reports.
+//! Ports `tama_merge.py`. Reads a filelist of BED sources (each with a cap flag
+//! and start/junction/end priorities), groups overlapping transcripts into genes,
+//! collapses matching models (priority-aware), and writes the merged BED plus
+//! merge/trans/gene reports.
 //!
-//! The no-cap and mixed-source merge paths (`hunter_prey_nocap`/`_mixed`) are not
-//! yet ported; sources must all be `capped` for now.
+//! Supports capped, no_cap, and mixed sources via the phased grouping in
+//! `group_gene` (capped connected components, then no_cap attachment, then
+//! no_cap-only components), using the capped / capped-nocap / both-nocap
+//! comparisons from the original. The `-s` (source gene/trans ids) and `-cds`
+//! (source CDS) options are supported.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -63,6 +66,8 @@ struct Thresholds {
 struct MergeTx {
     uniq_trans_id: String,
     source_id: String,
+    /// `true` for capped sources, `false` for no_cap.
+    capped: bool,
     scaffold: String,
     strand: char,
     trans_start: i64,
@@ -73,6 +78,12 @@ struct MergeTx {
     start_priority: i64,
     junction_priority: i64,
     end_priority: i64,
+    /// Original (un-prefixed) gene/trans ids and CDS from the source BED — used by
+    /// the `-s`/`-cds` options.
+    src_gene_id: String,
+    src_trans_id: String,
+    src_cds_start: i64,
+    src_cds_end: i64,
 }
 
 struct Collapsed {
@@ -103,9 +114,18 @@ impl MergedTrans {
         *self.collapsed.end.last().unwrap()
     }
 
-    fn format_bed_line(&self) -> String {
+    /// `extra_ids` are appended to the col-4 id line (`-s`); `cds` overrides the
+    /// thick start/end (`-cds`).
+    fn format_bed_line(&self, extra_ids: &[(String, String)], cds: Option<(i64, i64)>) -> String {
         let gene_id = self.trans_id.split('.').next().unwrap_or(&self.trans_id);
-        let id_line = format!("{};{}", gene_id, self.trans_id);
+        let mut id_line = format!("{};{}", gene_id, self.trans_id);
+        for (g, t) in extra_ids {
+            id_line.push_str(&format!(";{g};{t}"));
+        }
+        let (thick_start, thick_end) = match cds {
+            Some((s, e)) if s != 0 => (s, e),
+            _ => (self.start_pos(), self.end_pos()),
+        };
         let (mut sizes, mut starts) = (String::new(), String::new());
         for k in 0..self.num_exons {
             if k > 0 {
@@ -122,8 +142,8 @@ impl MergedTrans {
             id_line,
             "40".to_string(),
             self.strand.to_string(),
-            self.start_pos().to_string(),
-            self.end_pos().to_string(),
+            thick_start.to_string(),
+            thick_end.to_string(),
             self.rgb.clone(),
             self.num_exons.to_string(),
             sizes,
@@ -155,10 +175,6 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         exon: args.exon_thresh,
         longest_ends: args.ends == "longest_ends",
     };
-    if args.source_id.is_some() || args.cds_source.is_some() {
-        bail!("-s/-cds source id and CDS options are not implemented yet");
-    }
-
     // ---- parse filelist ----
     let filelist_dir = args
         .filelist
@@ -181,9 +197,6 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         if seq_type != "capped" && seq_type != "no_cap" {
             bail!("seq type must be capped or no_cap: {seq_type:?}");
         }
-        if seq_type == "no_cap" {
-            bail!("no_cap merge sources are not implemented yet");
-        }
         let pr: Vec<i64> = prio
             .split(',')
             .filter_map(|x| x.trim().parse().ok())
@@ -197,6 +210,22 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             (pr[0], pr[1], pr[2]),
         ));
     }
+
+    // ---- -s / -cds source selections (comma-separated source names) ----
+    let parse_sources = |flag: &Option<String>, label: &str| -> anyhow::Result<IndexSet<String>> {
+        let mut set = IndexSet::new();
+        if let Some(v) = flag {
+            for name in v.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                if !sources.contains_key(name) {
+                    bail!("{label} source {name:?} is not in the filelist");
+                }
+                set.insert(name.to_string());
+            }
+        }
+        Ok(set)
+    };
+    let source_id_flags = parse_sources(&args.source_id, "-s")?;
+    let cds_flags = parse_sources(&args.cds_source, "-cds")?;
 
     // source colour (sorted sources -> 1..=10)
     let mut colour_sources: Vec<&String> = sources.keys().collect();
@@ -212,7 +241,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     type StartMap = BTreeMap<i64, EndMap>;
     let mut bed_dict: BTreeMap<String, StartMap> = BTreeMap::new();
 
-    for (source_id, (filename, _seq, prio)) in &sources {
+    for (source_id, (filename, seq, prio)) in &sources {
+        let capped = seq == "capped";
         let path = if std::path::Path::new(filename).is_absolute() {
             std::path::PathBuf::from(filename)
         } else {
@@ -223,7 +253,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         let transcripts = tama_core::bed::read_bed(reader)
             .with_context(|| format!("parsing bed {}", path.display()))?;
         for bt in transcripts {
-            let tx = to_merge_tx(&bt, source_id, *prio);
+            let tx = to_merge_tx(&bt, source_id, capped, *prio);
             bed_dict
                 .entry(tx.scaffold.clone())
                 .or_default()
@@ -271,6 +301,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                     total_gene_count,
                     &source_colour,
                     &th,
+                    &source_id_flags,
+                    &cds_flags,
                     &mut out_bed,
                     &mut out_merge,
                     &mut out_trans,
@@ -290,6 +322,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
                     total_gene_count,
                     &source_colour,
                     &th,
+                    &source_id_flags,
+                    &cds_flags,
                     &mut out_bed,
                     &mut out_merge,
                     &mut out_trans,
@@ -303,10 +337,16 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn to_merge_tx(bt: &BedTranscript, source_id: &str, prio: (i64, i64, i64)) -> MergeTx {
+fn to_merge_tx(
+    bt: &BedTranscript,
+    source_id: &str,
+    capped: bool,
+    prio: (i64, i64, i64),
+) -> MergeTx {
     MergeTx {
         uniq_trans_id: format!("{}_{}", source_id, bt.trans_id()),
         source_id: source_id.to_string(),
+        capped,
         scaffold: bt.scaffold.clone(),
         strand: bt.strand,
         trans_start: bt.trans_start,
@@ -317,6 +357,10 @@ fn to_merge_tx(bt: &BedTranscript, source_id: &str, prio: (i64, i64, i64)) -> Me
         start_priority: prio.0,
         junction_priority: prio.1,
         end_priority: prio.2,
+        src_gene_id: bt.gene_id().to_string(),
+        src_trans_id: bt.trans_id().to_string(),
+        src_cds_start: bt.cds_start,
+        src_cds_end: bt.cds_end,
     }
 }
 
@@ -326,6 +370,8 @@ fn process_trans_group(
     mut total_gene_count: i64,
     source_colour: &IndexMap<String, usize>,
     th: &Thresholds,
+    source_id_flags: &IndexSet<String>,
+    cds_flags: &IndexSet<String>,
     out_bed: &mut Box<dyn Write>,
     out_merge: &mut Box<dyn Write>,
     out_trans: &mut Box<dyn Write>,
@@ -359,7 +405,7 @@ fn process_trans_group(
         total_gene_count += 1;
         let gene_txs: Vec<MergeTx> = ids.iter().map(|id| by_id[id].clone()).collect();
 
-        let match_groups = simplify_capped(&gene_txs, th);
+        let match_groups = group_gene(&gene_txs, th);
 
         let mut merged: Vec<MergedTrans> = Vec::new();
         for idx_group in &match_groups {
@@ -388,6 +434,9 @@ fn process_trans_group(
 
             writeln!(out_trans, "{}", format_trans_report(&m))?;
 
+            // -s: append the source's original gene;trans ids; -cds: override CDS.
+            let mut extra_ids: Vec<(String, String)> = Vec::new();
+            let mut cds: Option<(i64, i64)> = None;
             for uid in &m.members {
                 // source gene id (uniq_trans_id minus the source prefix, gene part)
                 let src_trans = uid.split_once('_').map(|x| x.1).unwrap_or(uid);
@@ -396,10 +445,16 @@ fn process_trans_group(
                 track_gene_source.insert(format!("{src_name}_{gene_part}"));
 
                 let tx = &by_id[uid];
+                if source_id_flags.contains(&tx.source_id) {
+                    extra_ids.push((tx.src_gene_id.clone(), tx.src_trans_id.clone()));
+                }
+                if cds_flags.contains(&tx.source_id) {
+                    cds = Some((tx.src_cds_start, tx.src_cds_end));
+                }
                 writeln!(out_merge, "{}", member_bed_line(tx, &m.trans_id))?;
             }
 
-            writeln!(out_bed, "{}", m.format_bed_line())?;
+            writeln!(out_bed, "{}", m.format_bed_line(&extra_ids, cds))?;
         }
 
         let mut src_genes: Vec<String> = track_gene_source.into_iter().collect();
@@ -474,9 +529,166 @@ fn same_transcript_capped(a: &MergeTx, b: &MergeTx, th: &Thresholds) -> bool {
     true
 }
 
-/// Connected components over the capped `same_transcript` relation.
-fn simplify_capped(txs: &[MergeTx], th: &Thresholds) -> Vec<Vec<usize>> {
-    let n = txs.len();
+/// Order a pair into (long, short). Returns `None` when the pair can't match:
+/// for a capped+no_cap pair the no_cap must not have more exons than the capped
+/// (`compare_transcripts_capped_nocap`). For two no_cap transcripts the longer
+/// (more exons; ties broken by the more-extended 5' end) is the "long" one.
+fn assign_long_short<'a>(
+    a: &'a MergeTx,
+    b: &'a MergeTx,
+    strand: char,
+) -> Option<(&'a MergeTx, &'a MergeTx)> {
+    if a.capped != b.capped {
+        let (capped, nocap) = if a.capped { (a, b) } else { (b, a) };
+        if nocap.num_exons > capped.num_exons {
+            return None;
+        }
+        return Some((capped, nocap));
+    }
+    // both no_cap
+    if a.num_exons != b.num_exons {
+        if a.num_exons > b.num_exons {
+            Some((a, b))
+        } else {
+            Some((b, a))
+        }
+    } else if strand == '+' {
+        // long = the one whose 5' (first) exon start is earlier/equal
+        if a.exon_start_list[0] <= b.exon_start_list[0] {
+            Some((a, b))
+        } else {
+            Some((b, a))
+        }
+    } else if a.exon_end_list[a.num_exons - 1] >= b.exon_end_list[b.num_exons - 1] {
+        Some((a, b))
+    } else {
+        Some((b, a))
+    }
+}
+
+/// Comparison when at least one transcript is no_cap. Returns `true` when the
+/// original would yield `same_transcript` / `same_three_prime_same_exons` /
+/// `same_three_prime_diff_exons` (i.e. a 5'-degraded model joins its longer
+/// relative). Faithful boolean reduction of `compare_transcripts_capped_nocap`
+/// and `compare_transcripts_both_nocap`.
+fn nocap_match(a: &MergeTx, b: &MergeTx, th: &Thresholds) -> bool {
+    let strand = a.strand;
+    let Some((long, short)) = assign_long_short(a, b, strand) else {
+        return false;
+    };
+    let max = long.num_exons;
+    let min = short.num_exons;
+    if min == 0 {
+        return false;
+    }
+    // Iterate from the 3' end (strand-corrected), comparing the shortest overlap.
+    for i in 0..min {
+        let (jl, js) = if strand == '+' {
+            (max - 1 - i, min - 1 - i)
+        } else {
+            (i, i)
+        };
+        let mut start_th = th.exon;
+        let mut end_th = th.exon;
+        if strand == '+' {
+            if i == 0 {
+                end_th = th.three;
+            }
+            if i == max - 1 {
+                start_th = th.five;
+            }
+        } else {
+            if i == 0 {
+                start_th = th.three;
+            }
+            if i == max - 1 {
+                end_th = th.five;
+            }
+        }
+        let ls = long.exon_start_list[jl];
+        let ss = short.exon_start_list[js];
+        let le = long.exon_end_list[jl];
+        let se = short.exon_end_list[js];
+        let start_match = (ls - ss).abs() <= start_th;
+        let end_match = (le - se).abs() <= end_th;
+
+        if i < min - 1 {
+            // internal exon: both boundaries must match
+            if !start_match || !end_match {
+                return false;
+            }
+        } else {
+            // 5'-most compared exon (i == min - 1): allow 5' degradation
+            if strand == '+' {
+                if !end_match {
+                    return false;
+                }
+                if !start_match && ls > ss {
+                    // long's 5' start is later than short's → not a degraded form
+                    return false;
+                }
+            } else {
+                if !start_match {
+                    return false;
+                }
+                if !end_match && le < se {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Group a gene's transcripts into merged models, mirroring the phased
+/// `simplify_gene` in the original:
+///
+/// 1. **Capped groups** — connected components over `same_transcript_capped`
+///    (`hunter_prey_capped`). Two distinct capped groups never merge.
+/// 2. **Attach no_cap** — each no_cap transcript is added to *every* capped group
+///    that contains a capped member it matches (`hunter_prey_mixed`); a no_cap can
+///    thus support more than one merged model, and never bridges two capped groups.
+/// 3. **No_cap-only groups** — no_caps not attached to any capped group are grouped
+///    among themselves by connected components over `nocap_match`
+///    (`hunter_prey_nocap`).
+///
+/// Returns member index lists (into `txs`); a no_cap index may appear in several.
+fn group_gene(txs: &[MergeTx], th: &Thresholds) -> Vec<Vec<usize>> {
+    let capped_idx: Vec<usize> = (0..txs.len()).filter(|&i| txs[i].capped).collect();
+    let nocap_idx: Vec<usize> = (0..txs.len()).filter(|&i| !txs[i].capped).collect();
+
+    // Phase 1: capped connected components.
+    let mut groups = connected_components(&capped_idx, |a, b| {
+        same_transcript_capped(&txs[a], &txs[b], th)
+    });
+
+    // Phase 2: attach no_caps to matching capped groups.
+    let mut attached = vec![false; txs.len()];
+    for g in groups.iter_mut() {
+        for &n in &nocap_idx {
+            let matches = g.iter().any(|&h| {
+                txs[h].num_exons >= txs[n].num_exons && nocap_match(&txs[h], &txs[n], th)
+            });
+            if matches {
+                g.push(n);
+                attached[n] = true;
+            }
+        }
+    }
+
+    // Phase 3: remaining no_caps grouped among themselves.
+    let remaining: Vec<usize> = nocap_idx.into_iter().filter(|&n| !attached[n]).collect();
+    groups.extend(connected_components(&remaining, |a, b| {
+        nocap_match(&txs[a], &txs[b], th)
+    }));
+
+    groups
+}
+
+/// Connected components over `idxs` under the symmetric `matches` relation.
+/// Returns groups of original indices, first-seen order preserved.
+fn connected_components(idxs: &[usize], matches: impl Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
+    let n = idxs.len();
     let mut parent: Vec<usize> = (0..n).collect();
     fn find(p: &mut [usize], x: usize) -> usize {
         let mut r = x;
@@ -493,7 +705,7 @@ fn simplify_capped(txs: &[MergeTx], th: &Thresholds) -> Vec<Vec<usize>> {
     }
     for i in 0..n {
         for j in (i + 1)..n {
-            if same_transcript_capped(&txs[i], &txs[j], th) {
+            if matches(idxs[i], idxs[j]) {
                 let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
                 if ri != rj {
                     parent[ri] = rj;
@@ -502,9 +714,9 @@ fn simplify_capped(txs: &[MergeTx], th: &Thresholds) -> Vec<Vec<usize>> {
         }
     }
     let mut groups: IndexMap<usize, Vec<usize>> = IndexMap::new();
-    for i in 0..n {
+    for (i, &orig) in idxs.iter().enumerate() {
         let r = find(&mut parent, i);
-        groups.entry(r).or_default().push(i);
+        groups.entry(r).or_default().push(orig);
     }
     groups.into_values().collect()
 }
@@ -540,12 +752,27 @@ fn collapse_transcripts(txs: &[MergeTx], th: &Thresholds) -> Collapsed {
             let es = t.exon_start_list[j];
             let ee = t.exon_end_list[j];
 
-            *e_start_dict.entry(esp).or_default().entry(es).or_insert(0) += 1;
+            // Reset a coordinate's support set when its (priority, coord) pair is
+            // first seen at this exon position, mirroring the original's
+            // `e_start_trans_dict[e_start] = {}` — a later-priority member (e.g. a
+            // no_cap supporter) replaces an earlier-priority one in the support cell.
+            let start_bucket = e_start_dict.entry(esp).or_default();
+            let start_new = !start_bucket.contains_key(&es);
+            *start_bucket.entry(es).or_insert(0) += 1;
+            if start_new {
+                e_start_support.insert(es, IndexSet::new());
+            }
             e_start_support
                 .entry(es)
                 .or_default()
                 .insert(t.uniq_trans_id.clone());
-            *e_end_dict.entry(eep).or_default().entry(ee).or_insert(0) += 1;
+
+            let end_bucket = e_end_dict.entry(eep).or_default();
+            let end_new = !end_bucket.contains_key(&ee);
+            *end_bucket.entry(ee).or_insert(0) += 1;
+            if end_new {
+                e_end_support.insert(ee, IndexSet::new());
+            }
             e_end_support
                 .entry(ee)
                 .or_default()

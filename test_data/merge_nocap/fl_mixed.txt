@@ -1,0 +1,2 @@
+srcA.bed	capped	1,1,1	cap
+srcB.bed	no_cap	2,2,2	nc

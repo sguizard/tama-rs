@@ -1,0 +1,6 @@
+gene_id	num_clusters	num_final_trans	sources	chrom	start	end	source_genes	source_summary
+G1	8	7	nc	AADN04001032.1	899	3163	nc_G1	nc:1
+G2	20	15	nc	AADN04001032.1	3200	5411	nc_G2	nc:1
+G3	1	1	nc	AADN04001032.1	8662	12814	nc_G3	nc:1
+G4	2	2	nc	AADN04001032.1	12840	13956	nc_G4	nc:1
+G5	1	1	nc	AADN04001032.1	13002	13313	nc_G5	nc:1

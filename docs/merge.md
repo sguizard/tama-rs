@@ -59,15 +59,32 @@ isoseq.bed	no_cap	2,2,2	isoseq
 | `-m` | `10` | exon / splice-junction threshold (bp) |
 | `-z` | `20` | **3'** threshold (bp) — again looser than collapse |
 | `-d` | `no_merge` | duplicate handling: `no_merge` or `merge_dup` |
-| `-s` | — | take gene/transcript IDs from this source (not yet implemented) |
-| `-cds` | — | take CDS from this source (not yet implemented) |
+| `-s` | — | append gene/transcript IDs from this source (comma-separated) to col 4 |
+| `-cds` | — | take the CDS (thick coords) from this source (comma-separated) |
 
 The looser default 5'/3' thresholds (20 vs. collapse's 10) reflect that
 independently-built annotations disagree about exact ends more than reads within
 one sample do.
 
-## Current limitations
+## Capped, no_cap, and mixed sources
 
-- Only **capped** sources are supported so far; `no_cap`/mixed-source merging
-  (`hunter_prey_nocap`/`_mixed` in the original) and the `-s`/`-cds` source
-  overrides are not yet ported.
+Each source's cap flag (column 2 of the filelist) controls how its 5' ends are
+treated, exactly as in [`collapse`](collapse.md#capped-vs-no_cap--x):
+
+- **capped–capped** models merge only when they have the same exon count and all
+  boundaries agree.
+- a **no_cap** model attaches to a capped model when its 3' end and shared splice
+  junctions match, even with fewer exons or a shorter 5' end (5' degradation). A
+  no_cap model can support more than one capped model, and never causes two
+  distinct capped models to merge.
+- **no_cap–no_cap** models group by the same 3'/junction rule among themselves.
+
+## `-s` / `-cds`
+
+- **`-s <source[,source...]>`** appends the *original* `gene_id;transcript_id`
+  from the named source(s) onto the merged model's column-4 ID, so you can carry
+  a reference annotation's IDs through the merge.
+- **`-cds <source[,source...]>`** copies the CDS (thickStart/thickEnd) from the
+  named source(s) onto the merged model.
+
+The source names must appear in the filelist.

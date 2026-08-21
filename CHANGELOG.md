@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-08-21
+
+### Added
+
+- **`tama merge`: no_cap and mixed sources.** `merge` now accepts `no_cap`
+  sources and any mix of capped/no_cap in one filelist, porting the original's
+  phased grouping (`hunter_prey_capped` → `hunter_prey_mixed` →
+  `hunter_prey_nocap`) and the `compare_transcripts_capped_nocap` /
+  `_both_nocap` comparisons. A 5'-degraded no_cap model attaches to the capped
+  model(s) it matches without merging distinct capped models together.
+- **`tama merge -s` / `-cds`.** `-s <source[,…]>` appends a source's original
+  `gene_id;transcript_id` to the merged model's column-4 ID; `-cds <source[,…]>`
+  copies that source's CDS (thick coords). Both previously errored as
+  unimplemented.
+- Golden tests for no_cap and mixed merge against the original Python 2
+  (`tests/golden_merge_nocap/`).
+- **Citation metadata**: `CITATION.cff` and a README Citation section requiring
+  users to cite the original TAMA paper (Kuo et al., *BMC Genomics* 21:751, 2020).
+- **Benchmarks** ([`docs/benchmarks.md`](docs/benchmarks.md)): `collapse` is
+  ~26–60× faster than the Python 2 original with ~5–10× less memory, output
+  byte-identical.
+
+### Notes
+
+- `.bed`, `_merge.txt`, and `_gene_report.txt` are byte-identical to the original
+  for capped, no_cap, and mixed merges. In `_trans_report.txt`, when a coordinate
+  is contended by a capped vs a no_cap member the support-cell "winner" (and, for
+  `-s`, the order of appended IDs when a model has several members from the
+  source) follows Python-2 dict iteration order and is not reproducible — the
+  same class of artifact already documented for capped merge.
+
 ## [0.1.1] — 2026-08-20
 
 Documentation release. No functional changes to any tool.
@@ -66,5 +97,6 @@ Affected: `collapse` `_trans_report` `collapse_error_nuc`; `merge`
 - **`merge`**: only `capped` sources are supported so far; `no_cap`/mixed-source
   merging and the `-s`/`-cds` source overrides are not yet ported.
 
+[0.2.0]: https://github.com/sguizard/tama-rs/releases/tag/v0.2.0
 [0.1.1]: https://github.com/sguizard/tama-rs/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sguizard/tama-rs/releases/tag/v0.1.0
