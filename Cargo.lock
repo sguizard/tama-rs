@@ -471,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "tama"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "tama-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "indexmap",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "tama-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flate2",
